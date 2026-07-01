@@ -291,9 +291,11 @@ async function loadLocations(){
   waitErr(LOCS.length? '' : 'locations.json yüklenemedi (aynı klasörde mi?)');
 }
 function pickLocation(){
-  const pool=LOCS.filter(l=>!usedIds.has(l.id));
-  const arr=pool.length?pool:LOCS;
-  const l=arr[Math.floor(Math.random()*arr.length)];
+  // 360° panoramalara öncelik (daha iyi ipucu); bitince düz fotolar
+  let pool=LOCS.filter(l=>l.is_pano && !usedIds.has(l.id));
+  if(!pool.length) pool=LOCS.filter(l=>!usedIds.has(l.id));
+  if(!pool.length){ usedIds=new Set(); pool=LOCS.filter(l=>l.is_pano); if(!pool.length)pool=LOCS; }
+  const l=pool[Math.floor(Math.random()*pool.length)];
   usedIds.add(l.id); return l;
 }
 async function fetchPhoto(id){
@@ -369,7 +371,7 @@ const guessIcon=()=>L.divIcon({className:'',html:`<div class="g-guess-icon" styl
 const truthIcon=()=>L.divIcon({className:'',html:`<div class="g-truth"><div class="p"></div><div class="c"></div></div>`,iconSize:[20,20],iconAnchor:[10,10]});
 function initMap(){
   gmap=L.map('guessMap',{zoomControl:true,attributionControl:false}).setView(TR_CENTER,TR_ZOOM);
-  L.tileLayer('https://{s}.basemap.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{subdomains:'abcd',maxZoom:18}).addTo(gmap);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{subdomains:'abcd',maxZoom:18}).addTo(gmap);
   gmap.on('click',e=>{ if(room&&room.phase==='guess'&&room.leaderId===myId){ sendPin(e.latlng.lat,e.latlng.lng); } });
   mapInited=true;
 }

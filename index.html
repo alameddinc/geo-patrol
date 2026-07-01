@@ -846,7 +846,7 @@
   function initMap(){
     const reg=REGIONS[room.region]||REGIONS.tr;
     monMap=L.map('map',{zoomControl:false,attributionControl:false}).setView(reg.center,reg.zoom);
-    L.tileLayer('https://{s}.basemap.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{subdomains:'abcd',maxZoom:18}).addTo(monMap);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{subdomains:'abcd',maxZoom:18}).addTo(monMap);
     monGroup=L.layerGroup().addTo(monMap);
     monInited=true;
   }
