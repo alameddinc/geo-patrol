@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>OPERASYON: HAYALET — Dedektif</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Orbitron:wght@700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<style>
+  :root{ --bg:#020617; --card:#0b1220; --panel:#0e1626; --green:#22e6a6; --cyan:#38bdf8; --amber:#fbbf24; --red:#ff4d4d; --fg:#e8eef7; --muted:#8496ad; --border:#1c3049; --border2:#24405e; }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{height:100%;}
+  body{font-family:"JetBrains Mono",ui-monospace,monospace;background:radial-gradient(circle at 20% -10%,#10243a 0%,transparent 45%),radial-gradient(circle at 100% 110%,#2a0f18 0%,transparent 40%),var(--bg);color:var(--fg);min-height:100%;}
+  body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:60;background:repeating-linear-gradient(to bottom,rgba(0,0,0,0) 0 2px,rgba(0,0,0,.08) 3px,rgba(0,0,0,0) 4px);mix-blend-mode:multiply;opacity:.5;}
+
+  /* lobby */
+  .lobby{position:fixed;inset:0;z-index:70;display:flex;align-items:center;justify-content:center;padding:20px;background:radial-gradient(circle at 50% 0%,#0c1a2e 0%,#020617 70%);}
+  .lobby.hide{display:none;}
+  .lobby-card{width:100%;max-width:430px;background:linear-gradient(165deg,var(--card),#060b16);border:1px solid var(--border);border-radius:20px;padding:30px 26px;box-shadow:0 0 0 1px rgba(56,189,248,.1),0 30px 80px rgba(0,0,0,.6);}
+  .lobby h1{font-family:"Orbitron",sans-serif;font-size:26px;font-weight:900;letter-spacing:1px;color:#fff;text-shadow:0 0 16px rgba(255,77,77,.4);text-align:center;margin-bottom:4px;}
+  .lobby .tag{text-align:center;font-size:11px;letter-spacing:2px;color:var(--amber);text-transform:uppercase;margin-bottom:22px;}
+  .field{margin-bottom:15px;}
+  .field label{font-size:10.5px;letter-spacing:1px;color:var(--muted);text-transform:uppercase;display:block;margin-bottom:7px;}
+  .field input{width:100%;background:#060d18;border:1px solid var(--border2);border-radius:11px;padding:13px 14px;color:#fff;font-family:"JetBrains Mono",monospace;font-size:15px;outline:none;}
+  .field input:focus{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(56,189,248,.2);}
+  #joinCode{text-transform:uppercase;letter-spacing:4px;font-family:"Orbitron",sans-serif;text-align:center;}
+  .hostonly{border:1px dashed var(--border2);border-radius:12px;padding:12px;margin-bottom:15px;}
+  .hostonly .hint{font-size:10px;color:var(--muted);margin-top:6px;line-height:1.5;}
+  .btn{width:100%;padding:15px;border:none;border-radius:12px;font-family:"Orbitron",sans-serif;font-size:15px;font-weight:900;letter-spacing:1.5px;text-transform:uppercase;cursor:pointer;color:#04121f;}
+  .btn:disabled{filter:grayscale(.6) brightness(.7);cursor:not-allowed;}
+  .btn.primary{background:linear-gradient(90deg,var(--red),var(--amber));color:#fff;box-shadow:0 10px 26px rgba(255,77,77,.3);}
+  .btn.primary:hover:not(:disabled){transform:translateY(-2px);}
+  .btn.ghost{background:transparent;border:1px solid var(--border2);color:var(--cyan);}
+  .divider{text-align:center;font-size:10px;color:var(--muted);letter-spacing:2px;margin:12px 0;}
+  .lobby-btns{display:flex;flex-direction:column;gap:10px;}
+  .lobby-err{color:var(--red);font-size:11.5px;text-align:center;min-height:16px;margin-top:10px;}
+  .waitroom{display:none;} .waitroom.show{display:block;} .lobby-main.hide{display:none;}
+  .rc{font-family:"Orbitron",sans-serif;font-size:42px;font-weight:900;letter-spacing:8px;color:var(--amber);text-align:center;text-shadow:0 0 18px rgba(251,191,36,.4);}
+  .rl{text-align:center;font-size:10px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;margin-bottom:16px;}
+  .plist{list-style:none;margin-bottom:14px;} .plist li{display:flex;align-items:center;gap:10px;padding:10px 12px;background:#0a1322;border:1px solid var(--border2);border-radius:10px;margin-bottom:6px;font-size:13px;}
+  .plist li .av{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-family:"Orbitron",sans-serif;font-size:11px;font-weight:900;color:#04121f;}
+  .plist li .ht{margin-left:auto;font-size:9px;letter-spacing:1px;color:var(--amber);border:1px solid var(--amber);padding:2px 6px;border-radius:6px;}
+  .wait-note{text-align:center;font-size:11px;color:var(--muted);margin-bottom:12px;}
+
+  /* game */
+  .game{display:none;min-height:100vh;padding:14px;max-width:1100px;margin:0 auto;}
+  .game.show{display:block;}
+  .ghead{display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;}
+  .case-badge{font-family:"Orbitron",sans-serif;font-size:13px;font-weight:900;letter-spacing:1px;color:var(--amber);border:1px solid var(--amber);padding:6px 12px;border-radius:999px;}
+  .act-badge{font-size:10px;letter-spacing:2px;color:var(--cyan);text-transform:uppercase;}
+  .sound-btn{margin-left:auto;background:#0c1626;border:1px solid var(--border2);color:var(--muted);width:34px;height:34px;border-radius:9px;cursor:pointer;display:grid;place-items:center;}
+  .sound-btn.on{color:var(--green);border-color:var(--green);} .sound-btn svg{width:17px;height:17px;}
+  .leave{background:transparent;border:1px solid var(--border2);color:var(--muted);border-radius:9px;padding:7px 10px;font-family:"JetBrains Mono",monospace;font-size:11px;cursor:pointer;}
+
+  /* İz Metresi */
+  .trail-wrap{background:linear-gradient(165deg,var(--panel),#070d18);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:12px;}
+  .trail-top{display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--muted);letter-spacing:1px;margin-bottom:9px;}
+  .trail-top b{font-family:"Orbitron",sans-serif;color:var(--fg);}
+  .trail-bar{position:relative;height:22px;background:#0a1322;border:1px solid var(--border2);border-radius:11px;overflow:hidden;}
+  .trail-fill{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,var(--red),var(--amber),var(--green));transition:width .8s cubic-bezier(.2,.7,.3,1);width:50%;}
+  .trail-ghost{position:absolute;top:50%;transform:translate(-50%,-50%);font-size:13px;transition:left .8s cubic-bezier(.2,.7,.3,1);z-index:2;}
+  .trail-mark{position:absolute;top:0;bottom:0;width:2px;background:rgba(255,255,255,.25);}
+
+  .stage{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  @media (max-width:800px){ .stage{grid-template-columns:1fr;} }
+  .pane{background:linear-gradient(165deg,var(--card),#060b16);border:1px solid var(--border);border-radius:16px;overflow:hidden;position:relative;}
+  .pane-lbl{position:absolute;top:10px;left:10px;z-index:5;font-size:10px;letter-spacing:1px;color:var(--fg);background:rgba(4,10,18,.8);border:1px solid var(--border2);padding:4px 9px;border-radius:7px;text-transform:uppercase;}
+  /* clue photo */
+  .clue{height:400px;background:#04070d;position:relative;overflow:hidden;cursor:grab;}
+  .clue.dragging{cursor:grabbing;}
+  .clue img{position:absolute;top:50%;left:50%;transform-origin:center;user-select:none;pointer-events:none;max-width:none;}
+  .clue .loading{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:12px;}
+  .clue .zoombtns{position:absolute;bottom:10px;right:10px;z-index:5;display:flex;gap:6px;}
+  .clue .zoombtns button{width:32px;height:32px;border-radius:8px;border:1px solid var(--border2);background:rgba(4,10,18,.85);color:var(--fg);font-size:18px;cursor:pointer;font-family:"Orbitron",sans-serif;}
+  .clue .pano-tag{position:absolute;top:10px;right:10px;z-index:5;font-size:9px;letter-spacing:1px;color:var(--cyan);border:1px solid var(--cyan);padding:3px 7px;border-radius:6px;background:rgba(4,10,18,.7);}
+  /* guess map */
+  #guessMap{height:400px;background:#04070d;} .leaflet-container{background:#04070d;font-family:"JetBrains Mono",monospace;}
+
+  .g-guess-icon{width:22px;height:22px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid #fff;box-shadow:0 0 10px rgba(0,0,0,.6);}
+  .g-truth{position:relative;} .g-truth .c{width:20px;height:20px;border-radius:50%;background:var(--red);border:2px solid #fff;box-shadow:0 0 14px var(--red);}
+  .g-truth .p{position:absolute;top:50%;left:50%;width:20px;height:20px;border-radius:50%;border:2px solid var(--red);transform:translate(-50%,-50%);animation:mp 1.6s ease-out infinite;}
+  @keyframes mp{0%{width:20px;height:20px;opacity:.9;}100%{width:80px;height:80px;opacity:0;}}
+
+  .statusbar{margin-top:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+  .status{font-family:"Orbitron",sans-serif;font-size:16px;font-weight:700;letter-spacing:1px;color:var(--cyan);flex:1;min-width:200px;}
+  .status.good{color:var(--green);} .status.bad{color:var(--red);}
+  .story{font-size:11.5px;color:var(--muted);margin-top:4px;line-height:1.5;}
+  .go-btn{padding:14px 22px;border:none;border-radius:12px;font-family:"Orbitron",sans-serif;font-size:15px;font-weight:900;letter-spacing:1.5px;text-transform:uppercase;color:#04121f;background:linear-gradient(90deg,var(--green),var(--cyan));cursor:pointer;}
+  .go-btn:disabled{filter:grayscale(.6) brightness(.7);cursor:not-allowed;}
+  .go-btn.next{background:linear-gradient(90deg,var(--cyan),var(--amber));}
+  .go-btn.reset{background:linear-gradient(90deg,var(--amber),var(--red));color:#fff;}
+
+  .players-row{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;}
+  .pchip{display:flex;align-items:center;gap:7px;background:#0a1322;border:1px solid var(--border2);border-radius:10px;padding:6px 11px;font-size:12px;}
+  .pchip.leader{border-color:var(--amber);background:rgba(251,191,36,.1);}
+  .pchip .av{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-family:"Orbitron",sans-serif;font-size:10px;font-weight:900;color:#04121f;}
+  .pchip .ld{font-size:9px;color:var(--amber);letter-spacing:1px;}
+
+  .finalcard{margin-top:14px;padding:16px;border-radius:14px;text-align:center;border:1px solid var(--amber);background:rgba(251,191,36,.1);display:none;}
+  .finalcard.show{display:block;} .finalcard .big{font-family:"Orbitron",sans-serif;font-size:22px;font-weight:900;margin-bottom:6px;}
+  .finalcard.caught .big{color:var(--green);} .finalcard.escaped .big{color:var(--red);}
+
+  .flash{position:fixed;inset:0;z-index:50;opacity:0;pointer-events:none;}
+  .flash.g{background:radial-gradient(circle,#dcffe9 0%,#22e6a6 40%,transparent 70%);}
+  .flash.r{background:radial-gradient(circle,#fff 0%,#ff8a3a 22%,#ff2b2b 42%,transparent 70%);}
+  @keyframes fg{0%{opacity:0;}12%{opacity:.6;}100%{opacity:0;}} @keyframes fr{0%{opacity:0;}10%{opacity:.85;}100%{opacity:0;}}
+  .flash.g.go{animation:fg .6s;} .flash.r.go{animation:fr .55s;}
+  @media (prefers-reduced-motion:reduce){*{animation-duration:.001ms!important;}body::before{display:none;}}
+</style>
+</head>
+<body>
+  <div class="flash g" id="flashG"></div>
+  <div class="flash r" id="flashR"></div>
+
+  <!-- LOBBY -->
+  <div class="lobby" id="lobby">
+    <div class="lobby-card">
+      <h1>OPERASYON: HAYALET</h1>
+      <div class="tag">Dedektif — Ortak Kampanya</div>
+      <div class="lobby-main" id="lobbyMain">
+        <div class="field"><label for="nick">Takma Ad</label><input id="nick" maxlength="12" placeholder="ör. Dedektif" autocomplete="off"/></div>
+        <div class="hostonly">
+          <div class="field" style="margin-bottom:0;"><label for="token">Mapillary Token (sadece oda kuran)</label><input id="token" placeholder="MLY|..." autocomplete="off"/></div>
+          <div class="hint">Vaka fotoğrafları için gerekli. Sadece host girer, katılanlar boş bırakır.</div>
+        </div>
+        <div class="lobby-btns">
+          <button class="btn primary" id="createBtn">Oda Kur</button>
+          <div class="divider">— VEYA —</div>
+          <div class="field" style="margin-bottom:6px;"><input id="joinCode" maxlength="4" placeholder="ODA KODU" autocomplete="off"/></div>
+          <button class="btn ghost" id="joinBtn">Odaya Katıl</button>
+        </div>
+        <div class="lobby-err" id="lobbyErr"></div>
+      </div>
+      <div class="waitroom" id="waitroom">
+        <div class="rc" id="rcCode">----</div><div class="rl">Bu kodu ekibinle paylaş</div>
+        <ul class="plist" id="waitList"></ul>
+        <div class="wait-note" id="waitNote">Ekip bekleniyor...</div>
+        <div class="lobby-btns">
+          <button class="btn primary" id="startBtn">Kampanyayı Başlat</button>
+          <button class="btn ghost" id="leaveLobbyBtn">Ayrıl</button>
+        </div>
+        <div class="lobby-err" id="waitErr"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- GAME -->
+  <div class="game" id="game">
+    <div class="ghead">
+      <span class="case-badge" id="caseBadge">VAKA 1/15</span>
+      <span class="act-badge" id="actBadge">İZ SÜRME</span>
+      <button class="sound-btn" id="soundBtn" title="Ses"><svg id="soundIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4z"/><line x1="22" y1="9" x2="16" y2="15"/><line x1="16" y1="9" x2="22" y2="15"/></svg></button>
+      <button class="leave" id="leaveBtn">Ayrıl</button>
+    </div>
+
+    <div class="trail-wrap">
+      <div class="trail-top"><span>İZ METRESİ</span><span><b id="trailNum">50</b>/100 — Hayalet <b id="trailStat">iz üstünde</b></span></div>
+      <div class="trail-bar">
+        <div class="trail-fill" id="trailFill"></div>
+        <div class="trail-mark" style="left:70%;"></div>
+        <div class="trail-ghost" id="trailGhost" style="left:50%;">🕵️</div>
+      </div>
+    </div>
+
+    <div class="stage">
+      <div class="pane">
+        <span class="pane-lbl">Vaka Görüntüsü</span>
+        <div class="clue" id="clue">
+          <div class="loading" id="clueLoading">Görüntü yükleniyor...</div>
+          <img id="clueImg" alt="ipucu" draggable="false"/>
+          <span class="pano-tag" id="panoTag" style="display:none;">360°</span>
+          <div class="zoombtns"><button id="zoomIn">+</button><button id="zoomOut">−</button></div>
+        </div>
+      </div>
+      <div class="pane">
+        <span class="pane-lbl" id="mapLbl">Tahmin Haritası</span>
+        <div id="guessMap"></div>
+      </div>
+    </div>
+
+    <div class="statusbar">
+      <div>
+        <div class="status" id="status">—</div>
+        <div class="story" id="story"></div>
+      </div>
+      <button class="go-btn" id="goBtn" disabled>Bekleniyor</button>
+    </div>
+
+    <div class="players-row" id="playersRow"></div>
+    <div class="finalcard" id="finalCard"></div>
+  </div>
+
+<script>
+"use strict";
+const MAXR=15, TRAIL0=50, $=id=>document.getElementById(id);
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const TR_CENTER=[39.0,35.2], TR_ZOOM=6;
+
+// ---- helpers ----
+const rad=x=>x*Math.PI/180;
+function havKm(a,b){const R=6371;const dla=rad(b[0]-a[0]),dlo=rad(b[1]-a[1]);const h=Math.sin(dla/2)**2+Math.cos(rad(a[0]))*Math.cos(rad(b[0]))*Math.sin(dlo/2)**2;return 2*R*Math.asin(Math.sqrt(h));}
+function trailDelta(km,finale){let d;if(km<0.5)d=18;else if(km<2)d=12;else if(km<10)d=6;else if(km<50)d=0;else if(km<200)d=-8;else d=-16;return finale?d*2:d;}
+function fmtKm(km){return km<1?Math.round(km*1000)+' m':km<10?(Math.round(km*10)/10)+' km':Math.round(km)+' km';}
+function initials(n){return (n||'?').trim().slice(0,2).toUpperCase();}
+function colorFor(id){const h=[...String(id)].reduce((a,c)=>a+c.charCodeAt(0),0)%360;return `hsl(${h} 70% 60%)`;}
+function makeCode(){const a='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';let s='';for(let i=0;i<4;i++)s+=a[Math.floor(Math.random()*a.length)];return s;}
+const PREFIX='geohayalet-3k-';
+const clampT=v=>Math.max(0,Math.min(100,v));
+
+const STORY={
+  act:(r)=>r>=15?'FİNALE':r>=11?'KISTIRMA':r>=6?'KOVALAMACA':'İZ SÜRME',
+  line:(r)=>{
+    const pool=[
+      'Hayalet bir sokak kamerasına yakalandı. Neredeydi?',
+      'Muhbir bir kare gönderdi. Konumu çözün.',
+      'Şüpheli bu noktadan geçmiş. İz sürün.',
+      'Son sinyal bu görüntüden geldi.',
+      'Kaçak burada mola vermiş olabilir.',
+      'Tanık bu manzarayı tarif etti.',
+    ];
+    if(r>=15) return 'SON ŞANS — Hayalet sınıra koşuyor. Bu vakayı doğru bilin!';
+    return pool[r%pool.length];
+  }
+};
+
+// ---- state ----
+let peer=null,isHost=false,hostConn=null,conns=[],myId=null,myName='',token='',soundOn=false;
+let room=null, lastPhase=null, lastRound=-1;
+
+function freshRoom(code){return{code,phase:'lobby',round:0,maxRounds:MAXR,players:[],leaderId:null,trail:TRAIL0,photo:null,guessPin:null,reveal:false,truth:null,lastDist:null,lastDelta:null,outcome:null};}
+function playerObj(id,name){return{id,name};}
+const P=id=>room&&room.players.find(p=>p.id===id);
+
+// host-only secret store
+let LOCS=[], usedIds=new Set(), curLoc=null;
+
+// =============== NETWORK ===============
+function sanitize(){
+  const c=JSON.parse(JSON.stringify(room));
+  if(!c.reveal) c.truth=null;
+  return c;
+}
+function broadcast(){ const msg={t:'state',room:sanitize()}; conns.forEach(cn=>{try{cn.send(msg);}catch(e){}}); onRoom(room); }
+
+function createRoom(){
+  isHost=true; const code=makeCode();
+  peer=new Peer(PREFIX+code);
+  peer.on('open',id=>{ myId=id; room=freshRoom(code); room.players.push(playerObj(id,myName)); room.leaderId=id; enterWait(); onRoom(room); loadLocations(); });
+  peer.on('connection',c=>{ c.on('open',()=>{ if(!conns.includes(c))conns.push(c); }); c.on('data',d=>hostData(c,d)); c.on('close',()=>{ conns=conns.filter(x=>x!==c); if(room){room.players=room.players.filter(p=>p.id!==c.peer); if(room.leaderId===c.peer)room.leaderId=room.players[0]?.id||null; broadcast();} }); });
+  peer.on('error',e=>{ if(e.type==='unavailable-id'){peer.destroy();createRoom();} else {lobbyErr('Bağlantı hatası: '+e.type);isHost=false;} });
+}
+function joinRoom(code){
+  isHost=false; peer=new Peer();
+  peer.on('open',id=>{ myId=id; hostConn=peer.connect(PREFIX+code,{reliable:true});
+    hostConn.on('open',()=>hostConn.send({t:'join',name:myName}));
+    hostConn.on('data',d=>{ if(d.t==='state'){ room=d.room; onRoom(room);} });
+    hostConn.on('close',()=>{lobbyErr('Oda kapandı.');backLobby();});
+    hostConn.on('error',()=>lobbyErr('Bağlantı hatası.'));
+    setTimeout(()=>{ if(!room){lobbyErr('Oda bulunamadı.');backLobby();} },6000);
+  });
+  peer.on('error',e=>{ lobbyErr(e.type==='peer-unavailable'?'Oda bulunamadı.':'Hata: '+e.type); backLobby(); });
+}
+function hostData(c,d){
+  if(!room) return;
+  if(d.t==='join'){ if(!P(c.peer))room.players.push(playerObj(c.peer,d.name)); else P(c.peer).name=d.name; broadcast(); }
+  else if(d.t==='pin'){ if(room.phase==='guess'&&c.peer===room.leaderId){ room.guessPin={lat:d.lat,lng:d.lng}; broadcast(); } }
+  else if(d.t==='lock'){ if(room.phase==='guess'&&c.peer===room.leaderId&&room.guessPin){ hostReveal(); } }
+}
+
+// =============== HOST GAME FLOW ===============
+async function loadLocations(){
+  try{ const r=await fetch('locations.json'); LOCS=await r.json(); }
+  catch(e){ LOCS=[]; }
+  waitErr(LOCS.length? '' : 'locations.json yüklenemedi (aynı klasörde mi?)');
+}
+function pickLocation(){
+  const pool=LOCS.filter(l=>!usedIds.has(l.id));
+  const arr=pool.length?pool:LOCS;
+  const l=arr[Math.floor(Math.random()*arr.length)];
+  usedIds.add(l.id); return l;
+}
+async function fetchPhoto(id){
+  const u=`https://graph.mapillary.com/${id}?access_token=${encodeURIComponent(token)}&fields=thumb_2048_url,thumb_1024_url,is_pano`;
+  const r=await fetch(u); const j=await r.json();
+  if(j.error) throw new Error(j.error.message||'foto hata');
+  return { url:j.thumb_2048_url||j.thumb_1024_url, is_pano:!!j.is_pano };
+}
+function hostStart(){ if(!isHost)return; room.round=1; startGuess(); }
+async function startGuess(){
+  room.phase='guess'; room.reveal=false; room.truth=null; room.guessPin=null; room.lastDist=null; room.lastDelta=null;
+  const n=room.players.length; room.leaderId=room.players[(room.round-1)%n].id;
+  // pick location + fetch photo (retry on failure)
+  room.photo=null; broadcast();  // clears photo -> "yükleniyor"
+  let tries=0, ok=false;
+  while(tries<5&&!ok){
+    tries++; curLoc=pickLocation();
+    try{ const ph=await fetchPhoto(curLoc.id); room.photo={url:ph.url,is_pano:ph.is_pano}; ok=true; }
+    catch(e){ /* try next */ }
+  }
+  if(!ok){ room.photo={url:null,is_pano:false,err:'Görüntü alınamadı (token?)'}; }
+  broadcast();
+}
+function hostReveal(){
+  const g=room.guessPin, t=curLoc;
+  const dist=havKm([g.lat,g.lng],[t.lat,t.lng]);
+  const finale=room.round>=room.maxRounds;
+  const delta=trailDelta(dist,finale);
+  room.trail=clampT(room.trail+delta);
+  room.lastDist=dist; room.lastDelta=delta;
+  room.truth={lat:t.lat,lng:t.lng,city:t.city}; room.reveal=true; room.phase='reveal';
+  if(room.trail>=100){ room.outcome='caught'; room.phase='over'; }
+  else if(room.trail<=0){ room.outcome='escaped'; room.phase='over'; }
+  else if(finale){ room.outcome = room.trail>=70?'caught':room.trail>=40?'near':'escaped'; room.phase='over'; }
+  broadcast();
+}
+function hostNext(){
+  if(!isHost)return;
+  if(room.phase==='over'){ return; }
+  if(room.round>=room.maxRounds){ room.outcome=room.trail>=70?'caught':room.trail>=40?'near':'escaped'; room.phase='over'; broadcast(); return; }
+  room.round++; startGuess();
+}
+function hostRestart(){ if(!isHost)return; usedIds=new Set(); room.trail=TRAIL0; room.outcome=null; room.round=1; startGuess(); }
+
+// peer -> host
+function sendPin(lat,lng){ if(isHost){ if(room.phase==='guess'&&room.leaderId===myId){room.guessPin={lat,lng};broadcast();} } else if(hostConn){try{hostConn.send({t:'pin',lat,lng});}catch(e){}} }
+function sendLock(){ if(isHost){ if(room.phase==='guess'&&room.leaderId===myId&&room.guessPin)hostReveal(); } else if(hostConn){try{hostConn.send({t:'lock'});}catch(e){}} }
+
+// =============== LOBBY UI ===============
+const lobby=$('lobby'),lobbyMain=$('lobbyMain'),waitroom=$('waitroom');
+function lobbyErr(m){$('lobbyErr').textContent=m||'';}
+function waitErr(m){$('waitErr').textContent=m||'';}
+$('createBtn').onclick=()=>{ myName=($('nick').value||'').trim()||'Dedektif'; token=($('token').value||'').trim(); if(!token){lobbyErr('Host için Mapillary token gerekli.');return;} lobbyErr(''); createRoom(); };
+$('joinBtn').onclick=()=>{ myName=($('nick').value||'').trim()||'Dedektif'; const c=($('joinCode').value||'').trim().toUpperCase(); if(c.length!==4){lobbyErr('4 haneli kod gir.');return;} lobbyErr(''); joinRoom(c); };
+$('startBtn').onclick=()=>{ if(room.players.length<1)return; hostStart(); };
+$('leaveLobbyBtn').onclick=()=>fullReset();
+$('leaveBtn').onclick=()=>fullReset();
+function enterWait(){ lobbyMain.classList.add('hide'); waitroom.classList.add('show'); }
+function backLobby(){ waitroom.classList.remove('show'); lobbyMain.classList.remove('hide'); }
+function fullReset(){ try{if(hostConn)hostConn.close();conns.forEach(c=>c.close());if(peer)peer.destroy();}catch(e){} peer=null;isHost=false;hostConn=null;conns=[];room=null;lastPhase=null; $('game').classList.remove('show'); lobby.classList.remove('hide'); backLobby(); }
+function renderWait(){
+  $('rcCode').textContent=room.code;
+  const list=$('waitList'); list.innerHTML='';
+  room.players.forEach((p,i)=>{ const li=document.createElement('li'); li.innerHTML=`<span class="av" style="background:${colorFor(p.id)}">${initials(p.name)}</span>${p.name}${p.id===myId?' (sen)':''}${i===0?'<span class="ht">HOST</span>':''}`; list.appendChild(li); });
+  const host=room.players[0]&&room.players[0].id===myId;
+  $('startBtn').style.display=host?'block':'none';
+  $('waitNote').textContent=host?'Ekip hazır → başlat!':'Host başlatmayı bekliyor...';
+}
+
+// =============== GAME UI ===============
+let gmap=null,guessMarker=null,truthMarker=null,lineLayer=null,mapInited=false;
+const guessIcon=()=>L.divIcon({className:'',html:`<div class="g-guess-icon" style="background:${colorFor(room.leaderId||'x')}"></div>`,iconSize:[22,22],iconAnchor:[11,20]});
+const truthIcon=()=>L.divIcon({className:'',html:`<div class="g-truth"><div class="p"></div><div class="c"></div></div>`,iconSize:[20,20],iconAnchor:[10,10]});
+function initMap(){
+  gmap=L.map('guessMap',{zoomControl:true,attributionControl:false}).setView(TR_CENTER,TR_ZOOM);
+  L.tileLayer('https://{s}.basemap.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{subdomains:'abcd',maxZoom:18}).addTo(gmap);
+  gmap.on('click',e=>{ if(room&&room.phase==='guess'&&room.leaderId===myId){ sendPin(e.latlng.lat,e.latlng.lng); } });
+  mapInited=true;
+}
+function clearMapLayers(){ [guessMarker,truthMarker,lineLayer].forEach(l=>{if(l)gmap.removeLayer(l);}); guessMarker=truthMarker=lineLayer=null; }
+
+// clue photo pan/zoom
+let cz=1,cx=0,cy=0,drag=false,dsx=0,dsy=0;
+const clue=$('clue'),clueImg=$('clueImg');
+function applyImg(){ clueImg.style.transform=`translate(-50%,-50%) translate(${cx}px,${cy}px) scale(${cz})`; }
+function resetImg(){ cz=1;cx=0;cy=0;applyImg(); }
+clue.addEventListener('mousedown',e=>{drag=true;dsx=e.clientX-cx;dsy=e.clientY-cy;clue.classList.add('dragging');});
+window.addEventListener('mousemove',e=>{if(drag){cx=e.clientX-dsx;cy=e.clientY-dsy;applyImg();}});
+window.addEventListener('mouseup',()=>{drag=false;clue.classList.remove('dragging');});
+clue.addEventListener('wheel',e=>{e.preventDefault();cz=Math.max(1,Math.min(6,cz*(e.deltaY<0?1.15:0.87)));applyImg();},{passive:false});
+$('zoomIn').onclick=()=>{cz=Math.min(6,cz*1.3);applyImg();};
+$('zoomOut').onclick=()=>{cz=Math.max(1,cz*0.77);applyImg();};
+// touch
+clue.addEventListener('touchstart',e=>{if(e.touches.length===1){drag=true;dsx=e.touches[0].clientX-cx;dsy=e.touches[0].clientY-cy;}},{passive:true});
+clue.addEventListener('touchmove',e=>{if(drag&&e.touches.length===1){cx=e.touches[0].clientX-dsx;cy=e.touches[0].clientY-dsy;applyImg();}},{passive:true});
+clue.addEventListener('touchend',()=>{drag=false;});
+
+function setPhoto(){
+  const ph=room.photo;
+  if(!ph){ clueImg.style.display='none'; $('clueLoading').style.display='grid'; $('clueLoading').textContent='Görüntü yükleniyor...'; $('panoTag').style.display='none'; return; }
+  if(!ph.url){ clueImg.style.display='none'; $('clueLoading').style.display='grid'; $('clueLoading').textContent=ph.err||'Görüntü yok'; return; }
+  $('clueLoading').style.display='none'; clueImg.style.display='block';
+  if(clueImg.dataset.url!==ph.url){ clueImg.dataset.url=ph.url; clueImg.onload=()=>{ // size to cover
+      const cw=clue.clientWidth,chh=clue.clientHeight,iw=clueImg.naturalWidth,ih=clueImg.naturalHeight;
+      const s=Math.max(cw/iw,chh/ih); clueImg.style.width=(iw*s)+'px'; clueImg.style.height=(ih*s)+'px'; resetImg();
+    }; clueImg.src=ph.url; }
+  $('panoTag').style.display=ph.is_pano?'block':'none';
+}
+
+function renderTrail(){
+  $('trailNum').textContent=Math.round(room.trail);
+  $('trailFill').style.width=room.trail+'%';
+  $('trailGhost').style.left=room.trail+'%';
+  $('trailStat').textContent = room.trail>=75?'köşede':room.trail>=50?'iz üstünde':room.trail>=25?'mesafe kazanıyor':'kaçmak üzere';
+}
+function renderPlayers(){
+  const el=$('playersRow'); el.innerHTML='';
+  room.players.forEach(p=>{ const d=document.createElement('div'); d.className='pchip'+(p.id===room.leaderId?' leader':''); d.innerHTML=`<span class="av" style="background:${colorFor(p.id)}">${initials(p.name)}</span>${p.name}${p.id===myId?' (sen)':''}${p.id===room.leaderId?'<span class="ld">LİDER</span>':''}`; el.appendChild(d); });
+}
+function amLeader(){ return room.leaderId===myId; }
+function isHostP(){ return room.players[0]?.id===myId; }
+
+function renderGo(){
+  const b=$('goBtn'); b.className='go-btn'; b.disabled=false; b.style.display='inline-block';
+  if(room.phase==='guess'){
+    if(amLeader()){ b.textContent='Kilitle'; b.disabled=!room.guessPin; }
+    else { b.textContent='Lider işaretliyor'; b.disabled=true; }
+  } else if(room.phase==='reveal'){
+    if(isHostP()){ b.className='go-btn next'; b.textContent=room.round>=room.maxRounds?'Finali Aç':'Sonraki Vaka ▸'; }
+    else { b.textContent='Host bekleniyor'; b.disabled=true; }
+  } else if(room.phase==='over'){
+    if(isHostP()){ b.className='go-btn reset'; b.textContent='Yeni Kampanya'; }
+    else { b.textContent='Host bekleniyor'; b.disabled=true; }
+  }
+}
+$('goBtn').onclick=()=>{
+  if(room.phase==='guess'&&amLeader()&&room.guessPin) sendLock();
+  else if(room.phase==='reveal') hostNext();
+  else if(room.phase==='over') hostRestart();
+};
+
+function renderMap(){
+  if(!mapInited) return;
+  // guess pin
+  if(room.guessPin){ if(!guessMarker){guessMarker=L.marker([room.guessPin.lat,room.guessPin.lng],{icon:guessIcon(),interactive:false}).addTo(gmap);} else guessMarker.setLatLng([room.guessPin.lat,room.guessPin.lng]); }
+  else if(guessMarker){ gmap.removeLayer(guessMarker); guessMarker=null; }
+  // reveal truth
+  if(room.reveal&&room.truth){
+    if(!truthMarker) truthMarker=L.marker([room.truth.lat,room.truth.lng],{icon:truthIcon(),interactive:false,zIndexOffset:900}).addTo(gmap);
+    if(room.guessPin&&!lineLayer) lineLayer=L.polyline([[room.guessPin.lat,room.guessPin.lng],[room.truth.lat,room.truth.lng]],{color:'#fbbf24',weight:2,dashArray:'6 6'}).addTo(gmap);
+    try{ const pts=[[room.truth.lat,room.truth.lng]]; if(room.guessPin)pts.push([room.guessPin.lat,room.guessPin.lng]); gmap.fitBounds(pts,{padding:[70,70],maxZoom:9}); }catch(e){}
+  }
+}
+
+function renderStatus(){
+  const st=$('status');
+  if(room.phase==='guess'){
+    st.className='status';
+    st.textContent = amLeader()? 'Haritaya tıkla, sonra Kilitle' : ('Lider: '+(P(room.leaderId)?.name||'—')+' işaretliyor');
+    $('story').textContent=STORY.line(room.round);
+    $('mapLbl').textContent = amLeader()?'Tahmin Haritası — SEN İŞARETLİYORSUN':'Tahmin Haritası';
+  } else if(room.phase==='reveal'||room.phase==='over'){
+    const good=room.lastDelta>0, near=room.truth&&room.truth.city;
+    st.className='status '+(good?'good':(room.lastDelta<0?'bad':''));
+    const sign=room.lastDelta>0?'+':'';
+    st.textContent = `${fmtKm(room.lastDist)} — ${near||''}  (${sign}${room.lastDelta} iz)`;
+    $('story').textContent = good?'İyi iş! Ağ Hayalet’e yaklaştı.':(room.lastDelta<0?'Uzak tahmin — Hayalet mesafe kazandı.':'Nötr — iz değişmedi.');
+    $('mapLbl').textContent='Gerçek Konum Açıldı';
+  }
+}
+
+function renderFinal(){
+  const fc=$('finalCard');
+  if(room.phase!=='over'){ fc.classList.remove('show'); return; }
+  const o=room.outcome;
+  fc.className='finalcard show '+(o==='caught'?'caught':'escaped');
+  if(o==='caught') fc.innerHTML='<div class="big">🎯 HAYALET YAKALANDI!</div>İz metresi '+Math.round(room.trail)+'. Ekip görevi tamamladı.';
+  else if(o==='near') fc.innerHTML='<div class="big">😬 KIL PAYI KAÇTI</div>İz metresi '+Math.round(room.trail)+'. Az kalmıştı.';
+  else fc.innerHTML='<div class="big">💨 HAYALET KAÇTI</div>İz metresi '+Math.round(room.trail)+'. İz soğudu.';
+}
+
+// phase transitions (effects/sound)
+function onPhaseChange(){
+  if(room.phase==='guess'){ resetImg(); if(mapInited)clearMapLayers(); }
+  else if(room.phase==='reveal'||room.phase==='over'){
+    if(room.lastDelta>0){ flash('g'); sfxGood(); }
+    else if(room.lastDelta<0){ flash('r'); sfxBad(); }
+    else sfxNeutral();
+  }
+}
+
+function onRoom(r){
+  room=r; if(!room) return;
+  if(room.phase==='lobby'){ lobby.classList.remove('hide'); $('game').classList.remove('show'); enterWait(); renderWait(); return; }
+  lobby.classList.add('hide'); $('game').classList.add('show');
+  if(!mapInited){ initMap(); setTimeout(()=>{if(gmap)gmap.invalidateSize();},80); }
+  $('caseBadge').textContent='VAKA '+Math.min(room.round,room.maxRounds)+'/'+room.maxRounds;
+  $('actBadge').textContent=STORY.act(room.round);
+  setPhoto(); renderTrail(); renderPlayers(); renderStatus(); renderMap(); renderGo(); renderFinal();
+  if(room.phase!==lastPhase||room.round!==lastRound){ onPhaseChange(); lastPhase=room.phase; lastRound=room.round; if(mapInited)setTimeout(()=>gmap.invalidateSize(),60); }
+}
+
+// ---- sound ----
+let AC=null;
+function ac(){if(!AC)AC=new(window.AudioContext||window.webkitAudioContext)();if(AC.state==='suspended')AC.resume();return AC;}
+function tone(f,dur,{type='sine',gain=0.16,at=0,glide=null}={}){if(!soundOn)return;const c=ac(),t0=c.currentTime+at,o=c.createOscillator(),g=c.createGain();o.type=type;o.frequency.setValueAtTime(f,t0);if(glide)o.frequency.exponentialRampToValueAtTime(glide,t0+dur);g.gain.setValueAtTime(0.0001,t0);g.gain.exponentialRampToValueAtTime(gain,t0+0.01);g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);o.connect(g).connect(c.destination);o.start(t0);o.stop(t0+dur+0.02);}
+function sfxGood(){[0,0.1,0.2].forEach((a,i)=>tone([523,659,880][i],0.2,{type:'triangle',gain:0.18,at:a}));}
+function sfxBad(){tone(150,0.5,{type:'sawtooth',gain:0.24,glide:50});}
+function sfxNeutral(){tone(400,0.12,{type:'sine',gain:0.1});}
+$('soundBtn').onclick=()=>{ soundOn=!soundOn; $('soundBtn').classList.toggle('on',soundOn);
+  $('soundIcon').innerHTML=soundOn?'<path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/>':'<path d="M11 5 6 9H2v6h4l5 4z"/><line x1="22" y1="9" x2="16" y2="15"/><line x1="16" y1="9" x2="22" y2="15"/>';
+  if(soundOn){ac();sfxNeutral();}
+};
+function flash(k){ if(reduce)return; const el=$(k==='g'?'flashG':'flashR'); el.classList.remove('go'); void el.offsetWidth; el.classList.add('go'); }
+</script>
+</body>
+</html>

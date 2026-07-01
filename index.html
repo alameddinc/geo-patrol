@@ -1,0 +1,928 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>GEO PATROL — Saha Operasyonu</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Orbitron:wght@700;900&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root {
+    --bg:#020617; --card:#0b1220; --panel:#0e1626; --radar-bg:#04140f;
+    --green:#22e6a6; --cyan:#38bdf8; --amber:#fbbf24; --red:#ff4d4d;
+    --fg:#e8eef7; --muted:#8496ad; --border:#1c3049; --border2:#24405e;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { height:100%; }
+  body {
+    font-family:"JetBrains Mono", ui-monospace, monospace;
+    background: radial-gradient(circle at 20% -10%, #10243a 0%, transparent 45%),
+                radial-gradient(circle at 100% 110%, #2a0f18 0%, transparent 40%), var(--bg);
+    color:var(--fg); min-height:100%; display:flex; align-items:center; justify-content:center;
+    padding:18px; overflow-x:hidden;
+  }
+  body::before {
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:60;
+    background:repeating-linear-gradient(to bottom, rgba(0,0,0,0) 0 2px, rgba(0,0,0,.09) 3px, rgba(0,0,0,0) 4px);
+    mix-blend-mode:multiply; opacity:.5;
+  }
+
+  /* ---------- LOBBY ---------- */
+  .lobby {
+    position:fixed; inset:0; z-index:70; display:flex; align-items:center; justify-content:center; padding:20px;
+    background:radial-gradient(circle at 50% 0%, #0c1a2e 0%, #020617 70%);
+  }
+  .lobby.hide { display:none; }
+  .lobby-card {
+    width:100%; max-width:420px; background:linear-gradient(165deg, var(--card), #060b16);
+    border:1px solid var(--border); border-radius:20px; padding:30px 26px;
+    box-shadow:0 0 0 1px rgba(56,189,248,.1), 0 30px 80px rgba(0,0,0,.6);
+  }
+  .lobby h1 { font-family:"Orbitron",sans-serif; font-size:30px; font-weight:900; letter-spacing:2px; color:#fff; text-shadow:0 0 16px rgba(34,230,166,.5); text-align:center; margin-bottom:4px; }
+  .lobby .tag { text-align:center; font-size:11px; letter-spacing:2px; color:var(--cyan); text-transform:uppercase; margin-bottom:24px; }
+  .field { margin-bottom:16px; }
+  .field label { font-size:10.5px; letter-spacing:1px; color:var(--muted); text-transform:uppercase; display:block; margin-bottom:7px; }
+  .field input {
+    width:100%; background:#060d18; border:1px solid var(--border2); border-radius:11px; padding:13px 14px;
+    color:#fff; font-family:"JetBrains Mono",monospace; font-size:16px; outline:none; transition:.2s;
+  }
+  .field input:focus { border-color:var(--cyan); box-shadow:0 0 0 3px rgba(56,189,248,.2); }
+  .field select { width:100%; background:#060d18; border:1px solid var(--border2); border-radius:11px; padding:13px 14px; color:#fff; font-family:"JetBrains Mono",monospace; font-size:15px; outline:none; cursor:pointer; }
+  .field select:focus { border-color:var(--cyan); box-shadow:0 0 0 3px rgba(56,189,248,.2); }
+  #joinCode { text-transform:uppercase; letter-spacing:4px; font-family:"Orbitron",sans-serif; font-weight:700; text-align:center; }
+
+  .mode-pick { display:flex; gap:8px; margin-bottom:18px; }
+  .mode-pick button {
+    flex:1; padding:12px 8px; border:1px solid var(--border2); border-radius:11px; background:#0a1322;
+    color:var(--muted); cursor:pointer; font-family:"JetBrains Mono",monospace; font-size:12px; font-weight:600; transition:.15s;
+    text-align:left; line-height:1.4;
+  }
+  .mode-pick button .mt { display:block; font-family:"Orbitron",sans-serif; font-size:13px; color:var(--fg); margin-bottom:2px; }
+  .mode-pick button.active { border-color:var(--green); background:rgba(34,230,166,.1); }
+  .mode-pick button.active .mt { color:var(--green); }
+
+  .lobby-btns { display:flex; flex-direction:column; gap:10px; }
+  .btn {
+    width:100%; padding:15px; border:none; border-radius:12px; font-family:"Orbitron",sans-serif;
+    font-size:15px; font-weight:900; letter-spacing:1.5px; text-transform:uppercase; cursor:pointer; transition:.15s; color:#04121f;
+  }
+  .btn:disabled { filter:grayscale(.6) brightness(.7); cursor:not-allowed; }
+  .btn.primary { background:linear-gradient(90deg, var(--green), var(--cyan)); box-shadow:0 10px 26px rgba(34,230,166,.3); }
+  .btn.primary:hover:not(:disabled) { transform:translateY(-2px); }
+  .btn.ghost { background:transparent; border:1px solid var(--border2); color:var(--cyan); }
+  .btn.ghost:hover { background:#0d1a2b; }
+  .divider { text-align:center; font-size:10px; color:var(--muted); letter-spacing:2px; margin:6px 0; }
+  .lobby-err { color:var(--red); font-size:11.5px; text-align:center; min-height:16px; margin-top:12px; }
+
+  /* waiting room (host/peer joined, before start) */
+  .waitroom { display:none; }
+  .waitroom.show { display:block; }
+  .lobby-main.hide { display:none; }
+  .room-code-box { text-align:center; margin-bottom:18px; }
+  .room-code-box .rc { font-family:"Orbitron",sans-serif; font-size:44px; font-weight:900; letter-spacing:8px; color:var(--green); text-shadow:0 0 18px rgba(34,230,166,.5); }
+  .room-code-box .rl { font-size:10px; letter-spacing:2px; color:var(--muted); text-transform:uppercase; }
+  .plist { list-style:none; margin-bottom:16px; max-height:200px; overflow-y:auto; }
+  .plist li { display:flex; align-items:center; gap:10px; padding:10px 12px; background:#0a1322; border:1px solid var(--border2); border-radius:10px; margin-bottom:6px; font-size:13px; }
+  .plist li .av { width:26px; height:26px; border-radius:50%; display:grid; place-items:center; font-family:"Orbitron",sans-serif; font-size:12px; font-weight:900; color:#04121f; background:var(--cyan); }
+  .plist li .hosttag { margin-left:auto; font-size:9px; letter-spacing:1px; color:var(--amber); border:1px solid var(--amber); padding:2px 6px; border-radius:6px; }
+  .wait-note { text-align:center; font-size:11px; color:var(--muted); margin-bottom:14px; }
+
+  /* ---------- GAME ---------- */
+  .shell { width:100%; max-width:940px; display:grid; grid-template-columns:1fr 300px; gap:16px; z-index:2; }
+  @media (max-width:820px){ .shell { grid-template-columns:1fr; } }
+  .shell.hide { display:none; }
+
+  .card { background:linear-gradient(165deg, var(--card), #060b16); border:1px solid var(--border); border-radius:18px; padding:22px; box-shadow:0 0 0 1px rgba(56,189,248,.08), 0 26px 70px rgba(0,0,0,.6); position:relative; }
+  .topbar { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:14px; }
+  .badge { display:inline-flex; align-items:center; gap:7px; font-size:10.5px; letter-spacing:2px; color:var(--cyan); text-transform:uppercase; border:1px solid var(--border2); padding:5px 10px; border-radius:999px; }
+  .badge .dot { width:7px; height:7px; border-radius:50%; background:var(--green); box-shadow:0 0 8px var(--green); animation:blink 1.4s infinite; }
+  @keyframes blink { 0%,100%{opacity:1;} 50%{opacity:.3;} }
+  .sound-btn { background:#0c1626; border:1px solid var(--border2); color:var(--green); width:36px; height:36px; border-radius:9px; cursor:pointer; display:grid; place-items:center; }
+  .sound-btn.off { color:var(--muted); }
+  .sound-btn svg { width:18px; height:18px; }
+
+  h1.gt { font-family:"Orbitron",sans-serif; font-size:24px; font-weight:900; letter-spacing:2px; color:#fff; text-shadow:0 0 14px rgba(34,230,166,.5); line-height:1; margin-bottom:6px; }
+  .brief { font-size:11.5px; color:var(--muted); line-height:1.6; border-left:2px solid var(--border2); padding-left:10px; margin-bottom:16px; }
+  .brief b { color:var(--amber); }
+
+  .radar-wrap { display:flex; justify-content:center; margin-bottom:16px; }
+  .radar { position:relative; width:280px; height:280px; border-radius:50%; background:radial-gradient(circle, #06231a 0%, var(--radar-bg) 70%, #020e0a 100%); border:2px solid var(--border2); box-shadow:inset 0 0 40px rgba(34,230,166,.15), 0 0 30px rgba(34,230,166,.12); overflow:hidden; }
+  .radar .ring { position:absolute; border:1px solid rgba(34,230,166,.22); border-radius:50%; top:50%; left:50%; transform:translate(-50%,-50%); }
+  .radar .ring.r1 { width:25%; height:25%; } .radar .ring.r2 { width:50%; height:50%; } .radar .ring.r3 { width:75%; height:75%; }
+  .radar .cross-h, .radar .cross-v { position:absolute; background:rgba(34,230,166,.15); }
+  .radar .cross-h { top:50%; left:0; right:0; height:1px; } .radar .cross-v { left:50%; top:0; bottom:0; width:1px; }
+  .radar .zone { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); border-radius:50%; background:radial-gradient(circle, rgba(34,230,166,.28) 0%, rgba(34,230,166,.1) 70%, transparent 100%); border:1px solid rgba(34,230,166,.5); transition:width .3s ease, height .3s ease; }
+  .radar .zone-tag { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); font-size:9px; letter-spacing:1px; color:var(--green); pointer-events:none; text-shadow:0 0 6px rgba(34,230,166,.6); white-space:nowrap; }
+  .radar .sweep { position:absolute; inset:0; border-radius:50%; background:conic-gradient(from 0deg, rgba(34,230,166,.55) 0deg, rgba(34,230,166,.12) 24deg, transparent 60deg, transparent 360deg); opacity:0; transition:opacity .2s; }
+  .radar.scanning .sweep { opacity:1; animation:sweepSpin .9s linear infinite; }
+  @keyframes sweepSpin { to { transform:rotate(360deg); } }
+  .radar .blip { position:absolute; width:14px; height:14px; border-radius:50%; transform:translate(-50%,-50%); background:var(--amber); box-shadow:0 0 12px var(--amber); opacity:0; z-index:4; }
+  .radar .blip.show { opacity:1; }
+  .radar .blip.caught { background:var(--green); box-shadow:0 0 16px var(--green), 0 0 34px var(--green); animation:blipPulse .5s 3; }
+  .radar .blip.escaped { background:var(--red); box-shadow:0 0 16px var(--red); }
+  @keyframes blipPulse { 50%{ transform:translate(-50%,-50%) scale(1.6);} }
+  @keyframes blipFlee { to { left:var(--fx); top:var(--fy); opacity:0; } }
+  .radar .blip.flee { animation:blipFlee .8s ease-in forwards; }
+  .radar .center-dot { position:absolute; top:50%; left:50%; width:8px; height:8px; border-radius:50%; transform:translate(-50%,-50%); background:var(--cyan); box-shadow:0 0 10px var(--cyan); z-index:5; }
+
+  .lbl { font-size:10.5px; letter-spacing:1px; color:var(--muted); text-transform:uppercase; margin-bottom:8px; display:block; }
+  .input-wrap { display:flex; align-items:center; gap:8px; background:#060d18; border:1px solid var(--border2); border-radius:12px; padding:12px 14px; transition:.2s; }
+  .input-wrap:focus-within { border-color:var(--cyan); box-shadow:0 0 0 3px rgba(56,189,248,.2); }
+  .input-wrap.locked { opacity:.55; }
+  #radiusInput { font-family:"Orbitron",sans-serif; font-weight:900; font-size:34px; background:transparent; border:none; color:#fff; width:100%; outline:none; letter-spacing:1px; }
+  #radiusInput::-webkit-outer-spin-button, #radiusInput::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
+  #radiusInput { -moz-appearance:textfield; }
+  .unit-toggle { display:flex; gap:4px; background:#040a12; border:1px solid var(--border2); border-radius:8px; padding:3px; }
+  .unit-toggle button { font-family:"JetBrains Mono",monospace; font-size:12px; font-weight:700; padding:6px 11px; border:none; border-radius:6px; cursor:pointer; background:transparent; color:var(--muted); transition:.15s; }
+  .unit-toggle button.active { background:var(--cyan); color:#04121f; box-shadow:0 0 10px rgba(56,189,248,.4); }
+  .quick { display:flex; gap:6px; margin-top:10px; flex-wrap:wrap; }
+  .quick button { flex:1; min-width:56px; padding:8px 4px; font-family:"JetBrains Mono",monospace; font-size:11.5px; font-weight:500; background:#0d1a2b; color:var(--cyan); border:1px solid var(--border2); border-radius:8px; cursor:pointer; transition:.15s; }
+  .quick button:hover { background:#14273e; }
+
+  .chance-row { display:flex; justify-content:space-between; align-items:center; margin:16px 0 8px; font-size:11.5px; }
+  .chance-row .pct { font-family:"Orbitron",sans-serif; font-size:20px; font-weight:900; color:var(--green); text-shadow:0 0 10px rgba(34,230,166,.5); }
+  .chance-row .risk { color:var(--red); font-weight:700; }
+  .chance-row .pts { color:var(--amber); font-weight:700; }
+
+  .status { text-align:center; margin:14px 0 4px; min-height:24px; font-family:"Orbitron",sans-serif; font-size:16px; font-weight:700; letter-spacing:1px; color:var(--cyan); }
+  .status.win { color:var(--green); text-shadow:0 0 16px rgba(34,230,166,.7); }
+  .status.lose { color:var(--red); text-shadow:0 0 16px rgba(255,77,77,.7); }
+  .status.arming { color:var(--amber); }
+  .story { text-align:center; font-size:11px; color:var(--muted); min-height:15px; margin-bottom:12px; }
+
+  .go-btn { width:100%; padding:16px; border:none; border-radius:13px; font-family:"Orbitron",sans-serif; font-size:16px; font-weight:900; letter-spacing:2px; text-transform:uppercase; color:#04121f; background:linear-gradient(90deg, var(--green), var(--cyan)); cursor:pointer; box-shadow:0 10px 26px rgba(34,230,166,.3); transition:.15s; }
+  .go-btn:hover:not(:disabled) { transform:translateY(-2px); }
+  .go-btn:disabled { filter:grayscale(.6) brightness(.7); cursor:not-allowed; transform:none; }
+  .go-btn.next { background:linear-gradient(90deg, var(--cyan), var(--amber)); }
+  .go-btn.reset { background:linear-gradient(90deg, var(--amber), var(--red)); color:#fff; }
+  .foot { text-align:center; margin-top:12px; font-size:9.5px; color:var(--muted); }
+
+  /* panel / leaderboard */
+  .panel { background:linear-gradient(165deg, var(--panel), #070d18); border:1px solid var(--border); border-radius:18px; padding:20px; display:flex; flex-direction:column; }
+  .panel h2 { font-family:"Orbitron",sans-serif; font-size:14px; letter-spacing:1.5px; color:#fff; margin-bottom:4px; }
+  .panel .sub2 { font-size:10.5px; color:var(--muted); margin-bottom:14px; }
+  .roomrow { display:flex; gap:8px; margin-bottom:14px; }
+  .roomrow .chip { flex:1; background:#0a1322; border:1px solid var(--border2); border-radius:10px; padding:9px; text-align:center; }
+  .roomrow .chip .n { font-family:"Orbitron",sans-serif; font-size:15px; font-weight:900; color:#fff; }
+  .roomrow .chip .l { font-size:9px; letter-spacing:1px; color:var(--muted); text-transform:uppercase; margin-top:3px; }
+  .roomrow .chip.code .n { color:var(--green); letter-spacing:2px; }
+
+  .team-total { background:rgba(34,230,166,.08); border:1px solid var(--green); border-radius:11px; padding:12px; text-align:center; margin-bottom:14px; display:none; }
+  .team-total.show { display:block; }
+  .team-total .n { font-family:"Orbitron",sans-serif; font-size:28px; font-weight:900; color:var(--green); }
+  .team-total .l { font-size:9.5px; letter-spacing:1px; color:var(--muted); text-transform:uppercase; }
+
+  .board { list-style:none; display:flex; flex-direction:column; gap:6px; }
+  .board li { display:flex; align-items:center; gap:9px; padding:9px 11px; background:#0a1322; border:1px solid var(--border2); border-radius:10px; transition:.2s; }
+  .board li.me { border-color:var(--cyan); }
+  .board li.lead { border-color:var(--amber); background:rgba(251,191,36,.08); }
+  .board li .rank { font-family:"Orbitron",sans-serif; font-size:12px; font-weight:900; color:var(--muted); width:20px; text-align:center; }
+  .board li.lead .rank { color:var(--amber); }
+  .board li .av { width:26px; height:26px; border-radius:50%; display:grid; place-items:center; font-family:"Orbitron",sans-serif; font-size:11px; font-weight:900; color:#04121f; }
+  .board li .nm { font-size:12.5px; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .board li .nm .st { font-size:9px; color:var(--muted); }
+  .board li .sc { font-family:"Orbitron",sans-serif; font-size:15px; font-weight:900; color:#fff; }
+  .board li .res { width:8px; height:8px; border-radius:50%; }
+  .board li .res.win { background:var(--green); box-shadow:0 0 6px var(--green); }
+  .board li .res.lose { background:var(--red); }
+  .board li .res.pending { background:var(--muted); opacity:.4; }
+
+  .final-banner { margin-top:14px; padding:12px; border-radius:11px; text-align:center; font-size:12px; border:1px solid var(--amber); background:rgba(251,191,36,.1); color:var(--amber); display:none; line-height:1.5; }
+  .final-banner.show { display:block; }
+  .final-banner b { font-family:"Orbitron",sans-serif; }
+  .leave { margin-top:12px; background:transparent; border:1px solid var(--border2); color:var(--muted); border-radius:9px; padding:9px; font-family:"JetBrains Mono",monospace; font-size:11px; cursor:pointer; }
+  .leave:hover { color:var(--red); border-color:var(--red); }
+
+  /* ---------- MONITOR ---------- */
+  .monitor { position:fixed; inset:0; z-index:44; display:none; background:#04070d; }
+  .monitor.show { display:block; }
+  #map { position:absolute; inset:0; background:#04070d; }
+  .leaflet-container { background:#04070d; font-family:"JetBrains Mono",monospace; }
+  .mon-hud { position:absolute; inset:0; pointer-events:none; z-index:500; padding:18px; display:flex; flex-direction:column; }
+  .mon-top { display:flex; align-items:center; gap:16px; pointer-events:auto; }
+  .mon-title { font-family:"Orbitron",sans-serif; font-size:20px; font-weight:900; letter-spacing:2px; color:#fff; text-shadow:0 0 14px rgba(34,230,166,.6); display:flex; align-items:center; gap:10px; }
+  .mon-live { width:11px; height:11px; border-radius:50%; background:var(--red); box-shadow:0 0 10px var(--red); animation:blink 1.2s infinite; }
+  .mon-meta { font-size:12px; color:var(--cyan); letter-spacing:1px; background:rgba(4,20,30,.7); border:1px solid var(--border2); padding:6px 12px; border-radius:999px; }
+  .mon-close { margin-left:auto; pointer-events:auto; background:rgba(20,10,14,.8); border:1px solid var(--red); color:var(--red); font-family:"Orbitron",sans-serif; font-size:12px; font-weight:900; letter-spacing:1px; padding:8px 14px; border-radius:10px; cursor:pointer; }
+  .mon-close:hover { background:var(--red); color:#fff; }
+  .mon-status { margin:14px auto 0; font-family:"Orbitron",sans-serif; font-size:26px; font-weight:900; letter-spacing:2px; color:var(--amber); text-shadow:0 0 18px rgba(0,0,0,.9); text-align:center; background:rgba(4,10,18,.55); padding:8px 24px; border-radius:12px; border:1px solid var(--border2); }
+  .mon-status.win { color:var(--green); border-color:var(--green); }
+  .mon-status.lose { color:var(--red); border-color:var(--red); }
+  .mon-board { margin-top:auto; display:flex; flex-wrap:wrap; gap:8px; pointer-events:auto; }
+  .mon-chip { display:flex; align-items:center; gap:8px; background:rgba(6,14,24,.85); border:1px solid var(--border2); border-radius:12px; padding:8px 12px; }
+  .mon-chip.lead { border-color:var(--amber); background:rgba(251,191,36,.14); }
+  .mon-chip.win { border-color:var(--green); } .mon-chip.lose { border-color:var(--red); }
+  .mon-chip .cav { width:24px; height:24px; border-radius:50%; display:grid; place-items:center; font-family:"Orbitron",sans-serif; font-size:10px; font-weight:900; color:#04121f; }
+  .mon-chip .cnm { font-size:13px; color:#fff; } .mon-chip .csc { font-family:"Orbitron",sans-serif; font-size:16px; font-weight:900; color:var(--amber); }
+  .mon-scanline { position:absolute; left:0; right:0; height:3px; z-index:450; background:linear-gradient(90deg, transparent, rgba(34,230,166,.9), transparent); box-shadow:0 0 20px 4px rgba(34,230,166,.6); opacity:0; pointer-events:none; }
+  .monitor.scanning .mon-scanline { opacity:1; animation:scanMove 1.6s linear infinite; }
+  @keyframes scanMove { 0%{top:8%;} 50%{top:92%;} 100%{top:8%;} }
+
+  /* map markers (divIcon) */
+  .m-suspect { position:relative; }
+  .m-suspect .core { width:20px; height:20px; border-radius:50%; background:var(--red); box-shadow:0 0 16px var(--red); border:2px solid #fff; }
+  .m-suspect .pulse { position:absolute; top:50%; left:50%; width:20px; height:20px; border-radius:50%; border:2px solid var(--red); transform:translate(-50%,-50%); animation:mpulse 1.6s ease-out infinite; }
+  @keyframes mpulse { 0%{width:20px;height:20px;opacity:.9;} 100%{width:90px;height:90px;opacity:0;} }
+  .m-suspect.caught .core { background:var(--green); box-shadow:0 0 20px var(--green); }
+  .m-unit { display:flex; flex-direction:column; align-items:center; }
+  .m-unit .badge2 { width:26px; height:26px; border-radius:50%; display:grid; place-items:center; font-family:"Orbitron",sans-serif; font-size:11px; font-weight:900; color:#04121f; border:2px solid rgba(255,255,255,.8); box-shadow:0 0 10px rgba(0,0,0,.6); }
+  .m-unit .tag2 { margin-top:2px; font-size:9px; color:#fff; background:rgba(4,10,18,.8); padding:1px 5px; border-radius:5px; white-space:nowrap; }
+  .m-unit.caught .badge2 { box-shadow:0 0 16px var(--green); border-color:var(--green); }
+  .m-unit.escaped .badge2 { filter:grayscale(.6) brightness(.7); }
+
+  /* FX */
+  #fx { position:fixed; inset:0; pointer-events:none; z-index:55; overflow:hidden; }
+  .particle { position:absolute; border-radius:50%; }
+  .flash { position:fixed; inset:0; z-index:50; opacity:0; pointer-events:none; }
+  .flash.red { background:radial-gradient(circle, #fff 0%, #ff8a3a 22%, #ff2b2b 42%, transparent 70%); }
+  .flash.green { background:radial-gradient(circle, #dcffe9 0%, #22e6a6 40%, transparent 70%); }
+  @keyframes flashRed { 0%{opacity:0;} 8%{opacity:.95;} 100%{opacity:0;} }
+  @keyframes flashGrn { 0%{opacity:0;} 12%{opacity:.65;} 100%{opacity:0;} }
+  .flash.red.go { animation:flashRed .55s ease-out; }
+  .flash.green.go { animation:flashGrn .6s ease-out; }
+  .alarm { position:fixed; inset:0; z-index:48; pointer-events:none; opacity:0; background:rgba(255,40,40,.14); }
+  .alarm.go { animation:alarmPulse .35s ease-in-out 4; }
+  @keyframes alarmPulse { 0%,100%{opacity:0;} 50%{opacity:1;} }
+  @keyframes bigshake { 0%,100%{transform:translate(0,0);} 20%{transform:translate(-10px,5px) rotate(-1deg);} 40%{transform:translate(10px,-5px) rotate(1deg);} 60%{transform:translate(-7px,3px);} 80%{transform:translate(7px,-2px);} }
+  .card.boom { animation:bigshake .5s; }
+  @keyframes winp { 50%{transform:scale(1.02);} }
+  .card.win-pulse { animation:winp .5s; }
+  @media (prefers-reduced-motion: reduce){ *{animation-duration:.001ms!important;} body::before{display:none;} }
+</style>
+</head>
+<body>
+  <div class="flash red" id="flashRed"></div>
+  <div class="flash green" id="flashGrn"></div>
+  <div class="alarm" id="alarm"></div>
+  <div id="fx"></div>
+
+  <!-- ===================== LOBBY ===================== -->
+  <div class="lobby" id="lobby">
+    <div class="lobby-card">
+      <h1>GEO PATROL</h1>
+      <div class="tag">Saha Operasyonu • Parti Odası</div>
+
+      <!-- main lobby (create/join) -->
+      <div class="lobby-main" id="lobbyMain">
+        <div class="field">
+          <label for="nick">Takma Ad</label>
+          <input id="nick" maxlength="12" placeholder="ör. Komiser" autocomplete="off"/>
+        </div>
+
+        <div class="field">
+          <label>Oyun Modu</label>
+          <div class="mode-pick">
+            <button data-mode="coop" class="active"><span class="mt">Ortak</span>Takım tek hedefi kovalar, sırayla işaretler. Toplam skor.</button>
+            <button data-mode="versus"><span class="mt">Karşılıklı</span>Herkes kendi işaretler, en çok puan lider olur.</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="regionSel">Bölge (Monitör haritası)</label>
+          <select id="regionSel">
+            <option value="tr" selected>Türkiye</option>
+            <option value="eu">Avrupa</option>
+            <option value="us">ABD</option>
+            <option value="world">Dünya</option>
+          </select>
+        </div>
+
+        <div class="lobby-btns">
+          <button class="btn primary" id="createBtn">Oda Kur</button>
+          <div class="divider">— VEYA —</div>
+          <div class="field" style="margin-bottom:10px;">
+            <input id="joinCode" maxlength="4" placeholder="ODA KODU" autocomplete="off"/>
+          </div>
+          <button class="btn ghost" id="joinBtn">Odaya Katıl</button>
+        </div>
+        <div class="lobby-err" id="lobbyErr"></div>
+      </div>
+
+      <!-- waiting room -->
+      <div class="waitroom" id="waitroom">
+        <div class="room-code-box">
+          <div class="rc" id="rcCode">----</div>
+          <div class="rl">Bu kodu arkadaşlarınla paylaş</div>
+        </div>
+        <ul class="plist" id="waitList"></ul>
+        <div class="wait-note" id="waitNote">Oyuncular bekleniyor...</div>
+        <div class="lobby-btns">
+          <button class="btn primary" id="startBtn">Operasyonu Başlat</button>
+          <button class="btn ghost" id="leaveLobbyBtn">Ayrıl</button>
+        </div>
+        <div class="lobby-err" id="waitErr"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== GAME ===================== -->
+  <div class="shell hide" id="shell">
+    <div class="card" id="card">
+      <div class="topbar">
+        <span class="badge"><span class="dot"></span> <span id="modeBadge">SAHA TİMİ</span></span>
+        <div style="display:flex; gap:8px;">
+        <button class="sound-btn" id="monitorBtn" aria-label="Monitör" title="Monitör (büyük ekran)" style="display:none; width:auto; padding:0 12px; font-family:'Orbitron',sans-serif; font-size:11px; font-weight:900; letter-spacing:1px; color:var(--amber); border-color:var(--amber);">MONİTÖR</button>
+        <button class="sound-btn" id="soundBtn" aria-label="Ses" title="Ses">
+          <svg id="soundIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/>
+          </svg>
+        </button>
+        </div>
+      </div>
+
+      <h1 class="gt">SAHA OPERASYONU</h1>
+      <div class="brief">
+        Kaçak şüpheli son kez bir konumda görüldü. İşaretten <b>sapma = arama yarıçapı</b>.
+        Dar yarıçap = yüksek yakalama şansı ama az puan. Geniş yarıçap = risk ama <b>çok puan</b>.
+        Yakalarsan puan senin, kaçarsa sıfır.
+      </div>
+
+      <div class="radar-wrap">
+        <div class="radar" id="radar">
+          <div class="ring r1"></div><div class="ring r2"></div><div class="ring r3"></div>
+          <div class="cross-h"></div><div class="cross-v"></div>
+          <div class="zone" id="zone"></div>
+          <div class="zone-tag" id="zoneTag"></div>
+          <div class="sweep"></div>
+          <div class="blip" id="blip"></div>
+          <div class="center-dot"></div>
+        </div>
+      </div>
+
+      <label class="lbl" id="inputLbl" for="radiusInput">Arama Yarıçapı (işaretten sapma)</label>
+      <div class="input-wrap" id="inputWrap">
+        <input id="radiusInput" type="number" inputmode="decimal" min="0" step="any" value="375" aria-label="Yarıçap"/>
+        <div class="unit-toggle">
+          <button data-unit="m" class="active">m</button>
+          <button data-unit="km">km</button>
+        </div>
+      </div>
+      <div class="quick">
+        <button data-km="0.1">100 m</button>
+        <button data-km="0.375">375 m</button>
+        <button data-km="1">1 km</button>
+        <button data-km="10">10 km</button>
+        <button data-km="100">100 km</button>
+      </div>
+
+      <div class="chance-row">
+        <span>YAKALAMA: <span class="pct" id="pct">57%</span></span>
+        <span class="pts" id="ptsLbl">PUAN: 200</span>
+        <span class="risk" id="riskLbl">RİSK: 43%</span>
+      </div>
+
+      <div class="status" id="status">Timler sevke hazır</div>
+      <div class="story" id="story"></div>
+
+      <button class="go-btn" id="goBtn">Yarıçapı Kİlİtle</button>
+      <div class="foot">YAKALAMA = 500m/(500m+YARIÇAP) • PUAN = 100·(1+YARIÇAP/500m) • RASTGELE SONUÇ</div>
+    </div>
+
+    <div class="panel">
+      <h2>ODA</h2>
+      <div class="sub2" id="panelSub">—</div>
+      <div class="roomrow">
+        <div class="chip code"><div class="n" id="pCode">----</div><div class="l">Kod</div></div>
+        <div class="chip"><div class="n" id="pRound">1/15</div><div class="l">Round</div></div>
+        <div class="chip"><div class="n" id="pMode">Ortak</div><div class="l">Mod</div></div>
+      </div>
+      <div class="team-total" id="teamTotal"><div class="n" id="teamNum">0</div><div class="l">Takım Toplam Puanı</div></div>
+      <ul class="board" id="board"></ul>
+      <div class="final-banner" id="finalBanner"></div>
+      <button class="leave" id="leaveBtn">Odadan Ayrıl</button>
+    </div>
+  </div>
+
+  <!-- ===================== MONITOR (big screen) ===================== -->
+  <div class="monitor" id="monitor">
+    <div id="map"></div>
+    <div class="mon-hud">
+      <div class="mon-top">
+        <div class="mon-title"><span class="mon-live"></span> OPERASYON MONİTÖRÜ</div>
+        <div class="mon-meta"><span id="monRegion">Türkiye</span> • <span id="monRound">1/15</span> • <span id="monMode">Ortak</span></div>
+        <button class="mon-close" id="monClose">✕ KAPAT</button>
+      </div>
+      <div class="mon-status" id="monStatus">Operasyon bekleniyor...</div>
+      <div class="mon-board" id="monBoard"></div>
+    </div>
+    <div class="mon-scanline" id="monScan"></div>
+  </div>
+
+<script>
+  "use strict";
+  const D50 = 0.5, MAX_KM = 20037, ROUNDS = 15, SCAN_MS_DEF = 3400;
+  const $ = id => document.getElementById(id);
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // ---------- helpers ----------
+  const catchProb = km => D50/(D50+Math.max(0,km));
+  const pointsFor = km => Math.round(100*(D50+Math.min(km,MAX_KM))/D50);
+  function fmtDist(km){ if(km<1) return Math.round(km*1000)+' m'; if(km<10) return (Math.round(km*10)/10)+' km'; return Math.round(km)+' km'; }
+  function initials(n){ return (n||'?').trim().slice(0,2).toUpperCase(); }
+  function colorFor(id){ const h=[...String(id)].reduce((a,c)=>a+c.charCodeAt(0),0)%360; return `hsl(${h} 70% 60%)`; }
+  function makeCode(){ const a='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; for(let i=0;i<4;i++) s+=a[Math.floor(Math.random()*a.length)]; return s; }
+  const PREFIX='geopatrol-2f7x-';
+
+  // ---------- state ----------
+  let peer=null, isHost=false, hostConn=null, conns=[]; // conns: host side
+  let myId=null, myName='', pickedMode='coop', pickedRegion='tr', soundOn=false;
+  let room=null;           // authoritative (host) / last snapshot (peer)
+  let myRadiusKm=0.375, unit='m', lockedLocal=false;
+  let lastPhase=null, animating=false;
+
+  const REGIONS = {
+    tr:    { name:'Türkiye', center:[39.0,35.2], zoom:6, bbox:[[36.2,26.5],[41.8,44.5]] },
+    eu:    { name:'Avrupa',  center:[54,15],     zoom:4, bbox:[[36,-9],[68,38]] },
+    us:    { name:'ABD',     center:[39,-98],    zoom:4, bbox:[[26,-123],[48,-70]] },
+    world: { name:'Dünya',   center:[25,10],     zoom:2, bbox:[[-45,-150],[62,150]] }
+  };
+  function hashDir(id,ang,i){ let h=0; for(const c of String(id)) h=(h*31+c.charCodeAt(0))>>>0; return (h%360)*Math.PI/180 + ang + i*2.399; }
+
+  function freshRoom(code){
+    return { code, mode:pickedMode, region:pickedRegion, phase:'lobby', round:0, maxRounds:ROUNDS,
+             players:[], seed:null, markerId:null, markerRadiusKm:null, teamScore:0, teamStreak:0, map:null };
+  }
+  function playerObj(id,name){ return { id, name, radiusKm:0.375, locked:false, score:0, streak:0, lastResult:null, roundPts:0 }; }
+  const P = id => room && room.players.find(p=>p.id===id);
+
+  // =========================================================
+  //  NETWORKING (PeerJS)
+  // =========================================================
+  function createRoom(){
+    isHost=true; const code=makeCode();
+    peer = new Peer(PREFIX+code);
+    peer.on('open', id=>{
+      myId=id; room=freshRoom(code); room.players.push(playerObj(id,myName)); room.markerId=id;
+      enterWaitRoom(); onRoom(room);
+    });
+    peer.on('connection', c=>{ c.on('open',()=>hostAddConn(c)); c.on('data',d=>hostOnData(c,d)); c.on('close',()=>hostOnClose(c)); c.on('error',()=>{}); });
+    peer.on('error', e=>{
+      if(e.type==='unavailable-id'){ peer.destroy(); createRoom(); }
+      else { lobbyErr('Bağlantı hatası: '+e.type); isHost=false; }
+    });
+  }
+  function hostAddConn(c){ if(!conns.includes(c)) conns.push(c); }
+  function hostOnClose(c){ conns=conns.filter(x=>x!==c); if(room){ room.players=room.players.filter(p=>p.id!==c.peer); if(room.markerId===c.peer) room.markerId=room.players[0]?.id||null; hostAfterChange(); } }
+  function hostOnData(c,d){
+    if(!room) return;
+    if(d.t==='join'){
+      if(!P(c.peer)){ room.players.push(playerObj(c.peer,d.name)); }
+      else P(c.peer).name=d.name;
+      hostAfterChange();
+    } else if(d.t==='radius'){ const p=P(c.peer); if(p&&!p.locked){ p.radiusKm=d.km; } }
+    else if(d.t==='lock'){ const p=P(c.peer); if(p){ p.radiusKm=d.km; p.locked=true; } hostTryAdvance(); hostAfterChange(); }
+  }
+  function broadcast(){ const msg={t:'state',room}; conns.forEach(c=>{ try{c.send(msg);}catch(e){} }); }
+  function hostAfterChange(){ broadcast(); onRoom(room); }  // update host's own UI too
+
+  function joinRoom(code){
+    isHost=false; peer=new Peer();
+    peer.on('open', id=>{
+      myId=id;
+      hostConn=peer.connect(PREFIX+code,{reliable:true});
+      hostConn.on('open',()=>{ hostConn.send({t:'join',name:myName}); });
+      hostConn.on('data',d=>{ if(d.t==='state'){ room=d.room; onRoom(room); } });
+      hostConn.on('close',()=>{ lobbyErr('Oda kapandı / host ayrıldı.'); backToLobby(); });
+      hostConn.on('error',()=>lobbyErr('Bağlantı hatası.'));
+      setTimeout(()=>{ if(!room){ lobbyErr('Oda bulunamadı. Kodu kontrol et.'); backToLobby(); } }, 6000);
+    });
+    peer.on('error', e=>{ lobbyErr(e.type==='peer-unavailable'?'Oda bulunamadı.':'Hata: '+e.type); backToLobby(); });
+  }
+
+  // host-only actions
+  function hostStartGame(){ if(!isHost) return; room.round=1; startInputPhase(); }
+  function startInputPhase(){
+    room.phase='input'; room.seed=null;
+    if(room.mode==='coop'){ const idx=(room.round-1)%room.players.length; room.markerId=room.players[idx].id; room.markerRadiusKm=null; }
+    room.players.forEach(p=>{ p.locked=false; p.lastResult=null; p.roundPts=0; });
+    hostAfterChange();
+  }
+  function hostTryAdvance(){
+    if(room.phase!=='input') return;
+    let ready;
+    if(room.mode==='coop'){ const m=P(room.markerId); ready = m && m.locked; }
+    else { ready = room.players.length>0 && room.players.every(p=>p.locked); }
+    if(ready) startScan();
+  }
+  function startScan(){
+    room.phase='scanning';
+    room.seed = { rollN: Math.random(), ang: Math.random()*Math.PI*2 };
+    if(room.mode==='coop'){ const m=P(room.markerId); room.markerRadiusKm = m?m.radiusKm:0.375; }
+    room.map = computeMap();
+    hostAfterChange();
+    const dur = reduce?600:SCAN_MS_DEF;
+    setTimeout(()=>hostResolve(), dur+ (reduce?60:500));
+  }
+  function computeMap(){
+    const reg=REGIONS[room.region]||REGIONS.tr; const [[laMin,loMin],[laMax,loMax]]=reg.bbox;
+    const S={ lat: laMin+room.seed.rollN*(laMax-laMin), lng: loMin+(room.seed.ang/(2*Math.PI))*(loMax-loMin) };
+    const guesses={};
+    const locked = room.mode==='coop'
+      ? [P(room.markerId)].filter(p=>p&&p.locked)
+      : room.players.filter(p=>p.locked);
+    locked.forEach((p,i)=>{
+      const dir=hashDir(p.id, room.seed.ang, i), dist=Math.max(0.02,p.radiusKm);
+      const dLat=(dist/111)*Math.sin(dir);
+      const dLng=(dist/(111*Math.cos(S.lat*Math.PI/180)))*Math.cos(dir);
+      guesses[p.id]={ lat:S.lat+dLat, lng:S.lng+dLng, dist };
+    });
+    return { suspect:S, guesses, region:room.region };
+  }
+
+  function hostResolve(){
+    const s=room.seed;
+    if(room.mode==='coop'){
+      const r=room.markerRadiusKm, caught=s.rollN<catchProb(r);
+      const m=P(room.markerId);
+      if(caught){ room.teamStreak++; const pts=pointsFor(r)+25*(room.teamStreak-1); room.teamScore+=pts; if(m){m.score+=pts; m.roundPts=pts;} }
+      else { room.teamStreak=0; }
+      room.players.forEach(p=>{ p.lastResult = (p.id===room.markerId)?(caught?'win':'lose'):'idle'; });
+    } else {
+      room.players.forEach(p=>{
+        if(!p.locked){ p.lastResult='skip'; p.streak=0; p.roundPts=0; return; }
+        const caught=s.rollN<catchProb(p.radiusKm);
+        if(caught){ p.streak++; const pts=pointsFor(p.radiusKm)+25*(p.streak-1); p.score+=pts; p.roundPts=pts; p.lastResult='win'; }
+        else { p.streak=0; p.roundPts=0; p.lastResult='lose'; }
+      });
+    }
+    room.phase='result';
+    hostAfterChange();
+  }
+  function hostNext(){
+    if(!isHost) return;
+    if(room.round>=room.maxRounds){ room.phase='over'; hostAfterChange(); return; }
+    room.round++; startInputPhase();
+  }
+  function hostRestart(){ if(!isHost) return; room.round=1; room.teamScore=0; room.teamStreak=0; room.players.forEach(p=>{p.score=0;p.streak=0;p.lastResult=null;p.roundPts=0;}); startInputPhase(); }
+
+  // peer→host send
+  function sendRadius(km){ if(isHost){ const p=P(myId); if(p&&!p.locked)p.radiusKm=km; } else if(hostConn){ try{hostConn.send({t:'radius',km});}catch(e){} } }
+  function sendLock(km){
+    if(isHost){ const p=P(myId); if(p){ p.radiusKm=km; p.locked=true; } hostTryAdvance(); hostAfterChange(); }
+    else if(hostConn){ try{hostConn.send({t:'lock',km});}catch(e){} }
+  }
+
+  // =========================================================
+  //  UI  — LOBBY
+  // =========================================================
+  const lobby=$('lobby'), lobbyMain=$('lobbyMain'), waitroom=$('waitroom');
+  function lobbyErr(m){ $('lobbyErr').textContent=m||''; }
+  function waitErr(m){ $('waitErr').textContent=m||''; }
+
+  document.querySelectorAll('.mode-pick button').forEach(b=>b.addEventListener('click',()=>{
+    document.querySelectorAll('.mode-pick button').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active'); pickedMode=b.dataset.mode;
+  }));
+  $('regionSel').addEventListener('change', e=>{ pickedRegion=e.target.value; });
+  $('createBtn').addEventListener('click',()=>{
+    myName=($('nick').value||'').trim()||'Oyuncu'; lobbyErr(''); createRoom();
+  });
+  $('joinBtn').addEventListener('click',()=>{
+    myName=($('nick').value||'').trim()||'Oyuncu';
+    const code=($('joinCode').value||'').trim().toUpperCase();
+    if(code.length!==4){ lobbyErr('4 haneli oda kodu gir.'); return; }
+    lobbyErr(''); joinRoom(code);
+  });
+  $('startBtn').addEventListener('click',()=>hostStartGame());
+  $('leaveLobbyBtn').addEventListener('click',()=>fullReset());
+  $('leaveBtn').addEventListener('click',()=>fullReset());
+
+  function enterWaitRoom(){ lobbyMain.classList.add('hide'); waitroom.classList.add('show'); }
+  function backToLobby(){ waitroom.classList.remove('show'); lobbyMain.classList.remove('hide'); }
+  function fullReset(){ try{ if(hostConn)hostConn.close(); conns.forEach(c=>c.close()); if(peer)peer.destroy(); }catch(e){}
+    peer=null; isHost=false; hostConn=null; conns=[]; room=null; lastPhase=null;
+    $('shell').classList.add('hide'); lobby.classList.remove('hide'); backToLobby(); lobbyErr(''); waitErr('');
+  }
+
+  function renderWait(){
+    $('rcCode').textContent=room.code;
+    const list=$('waitList'); list.innerHTML='';
+    room.players.forEach(p=>{
+      const li=document.createElement('li');
+      li.innerHTML=`<span class="av" style="background:${colorFor(p.id)}">${initials(p.name)}</span>${p.name}${p.id===myId?' (sen)':''}${p.id===room.players[0].id?'<span class="hosttag">HOST</span>':''}`;
+      list.appendChild(li);
+    });
+    const host = room.players[0] && room.players[0].id===myId;
+    $('startBtn').style.display = host?'block':'none';
+    $('waitNote').textContent = host ? (room.players.length<2?'En az 1 arkadaş bekleniyor (tek de başlatabilirsin).':'Herkes hazır → başlat!') : 'Host başlatmayı bekliyor...';
+  }
+
+  // =========================================================
+  //  UI  — GAME (driven by room state)
+  // =========================================================
+  const RADAR_R=138;
+  const radiusInput=$('radiusInput'), unitBtns=document.querySelectorAll('.unit-toggle button');
+  const zone=$('zone'), zoneTag=$('zoneTag'), radar=$('radar'), blip=$('blip'), inputWrap=$('inputWrap');
+  const pct=$('pct'), riskLbl=$('riskLbl'), ptsLbl=$('ptsLbl'), status=$('status'), story=$('story');
+  const goBtn=$('goBtn'), inputLbl=$('inputLbl');
+  const card=$('card'), flashRed=$('flashRed'), flashGrn=$('flashGrn'), alarm=$('alarm'), fx=$('fx');
+
+  function syncInput(){ radiusInput.value = unit==='m' ? Math.round(myRadiusKm*1000) : (myRadiusKm<10?Math.round(myRadiusKm*10)/10:Math.round(myRadiusKm)); }
+  function readInput(){ let v=parseFloat(radiusInput.value); if(isNaN(v)||v<0)v=0; let km=unit==='m'?v/1000:v; return Math.min(km,MAX_KM); }
+
+  radiusInput.addEventListener('input',()=>{ if(lockedLocal)return; myRadiusKm=readInput(); renderChance(); sendRadius(myRadiusKm); });
+  radiusInput.addEventListener('blur',()=>{ if(!lockedLocal)syncInput(); });
+  unitBtns.forEach(b=>b.addEventListener('click',()=>{ if(lockedLocal)return;
+    unitBtns.forEach(x=>x.classList.remove('active')); b.classList.add('active'); unit=b.dataset.unit; syncInput(); renderChance();
+  }));
+  document.querySelectorAll('.quick button').forEach(b=>b.addEventListener('click',()=>{ if(lockedLocal)return;
+    myRadiusKm=Math.min(parseFloat(b.dataset.km),MAX_KM); syncInput(); renderChance(); sendRadius(myRadiusKm);
+  }));
+
+  function myEffectiveRadius(){ return room.mode==='coop' ? (room.phase==='input'? (P(room.markerId)?.radiusKm ?? myRadiusKm) : (room.markerRadiusKm ?? myRadiusKm)) : myRadiusKm; }
+  function amMarker(){ return room.mode==='coop' && room.markerId===myId; }
+  function canInput(){ if(room.phase!=='input'||lockedLocal) return false; return room.mode==='coop'? amMarker() : true; }
+
+  function renderChance(){
+    const r = canInput()? myRadiusKm : myEffectiveRadius();
+    const p=catchProb(r), pInt=Math.round(p*100);
+    pct.textContent=pInt+'%'; riskLbl.textContent='RİSK: '+(100-pInt)+'%'; ptsLbl.textContent='PUAN: '+pointsFor(r);
+    const zr=Math.max(10,p*RADAR_R); zone.style.width=(zr*2)+'px'; zone.style.height=(zr*2)+'px';
+    zoneTag.textContent=fmtDist(r)+' • %'+pInt;
+  }
+
+  function renderGoBtn(){
+    const host = room.players[0]?.id===myId;
+    goBtn.className='go-btn'; goBtn.disabled=false; goBtn.style.display='block';
+    if(room.phase==='input'){
+      if(room.mode==='coop' && !amMarker()){ goBtn.textContent='İşaretçi: '+(P(room.markerId)?.name||'—'); goBtn.disabled=true; }
+      else if(lockedLocal){ goBtn.textContent='Kilitlendi ✓ bekleniyor'; goBtn.disabled=true; }
+      else { goBtn.textContent='Yarıçapı Kilitle'; }
+    } else if(room.phase==='scanning'){ goBtn.textContent='Taranıyor...'; goBtn.disabled=true; }
+    else if(room.phase==='result'){
+      if(host){ goBtn.textContent = room.round>=room.maxRounds?'Bitir ▸':'Sonraki Operasyon ▸'; goBtn.className='go-btn next'; }
+      else { goBtn.textContent='Host bekleniyor...'; goBtn.disabled=true; }
+    } else if(room.phase==='over'){
+      if(host){ goBtn.textContent='Yeni Vardiya'; goBtn.className='go-btn reset'; }
+      else { goBtn.textContent='Host bekleniyor...'; goBtn.disabled=true; }
+    }
+  }
+  goBtn.onclick=()=>{
+    if(room.phase==='input'){ if(!canInput())return; lockedLocal=true; sendLock(myRadiusKm); renderGoBtn(); renderInputState(); }
+    else if(room.phase==='result'){ hostNext(); }
+    else if(room.phase==='over'){ hostRestart(); }
+  };
+
+  function renderInputState(){
+    const enabled=canInput();
+    inputWrap.classList.toggle('locked',!enabled);
+    radiusInput.disabled=!enabled; unitBtns.forEach(b=>b.disabled=!enabled);
+    document.querySelectorAll('.quick button').forEach(b=>b.disabled=!enabled);
+    if(room.mode==='coop'){ inputLbl.textContent = amMarker()?'Arama Yarıçapı — SEN İŞARETLİYORSUN':('İşaretçi: '+(P(room.markerId)?.name||'—')); }
+    else inputLbl.textContent='Arama Yarıçapı (işaretten sapma)';
+  }
+
+  function renderPanel(){
+    $('modeBadge').textContent = room.mode==='coop'?'ORTAK OPERASYON':'KARŞILIKLI DÜELLO';
+    $('pCode').textContent=room.code;
+    $('pRound').textContent=Math.min(room.round,room.maxRounds)+'/'+room.maxRounds;
+    $('pMode').textContent=room.mode==='coop'?'Ortak':'Düello';
+    $('panelSub').textContent = room.phase==='over'?'Vardiya tamamlandı':(room.phase==='lobby'?'Lobi':'Operasyon '+Math.min(room.round,room.maxRounds)+' / '+room.maxRounds);
+    // team total
+    const tt=$('teamTotal'); if(room.mode==='coop'){ tt.classList.add('show'); $('teamNum').textContent=room.teamScore; } else tt.classList.remove('show');
+    // leaderboard
+    const board=$('board'); board.innerHTML='';
+    const sorted=[...room.players].sort((a,b)=>b.score-a.score);
+    const maxScore=sorted[0]?sorted[0].score:0;
+    sorted.forEach((p,i)=>{
+      const li=document.createElement('li');
+      if(p.id===myId) li.classList.add('me');
+      if(maxScore>0 && p.score===maxScore) li.classList.add('lead');
+      const resCls = p.lastResult==='win'?'win':(p.lastResult==='lose'||p.lastResult==='skip')?'lose':'pending';
+      const stTxt = room.mode==='coop'
+        ? (p.id===room.markerId?'işaretçi':'')
+        : (p.streak>1?('🔥'+p.streak+' seri'):'');
+      const crown = (li.classList.contains('lead'))?'♛ ':'';
+      li.innerHTML=`<span class="rank">${crown||(i+1)}</span>
+        <span class="av" style="background:${colorFor(p.id)}">${initials(p.name)}</span>
+        <span class="nm">${p.name}${p.id===myId?' (sen)':''}<span class="st"> ${stTxt}</span></span>
+        <span class="sc">${p.score}</span>
+        <span class="res ${resCls}"></span>`;
+      board.appendChild(li);
+    });
+    // final
+    const fb=$('finalBanner');
+    if(room.phase==='over'){
+      if(room.mode==='coop'){
+        const rate=Math.round(room.teamScore>0? (room.players.reduce((a,p)=>a,0), 0):0);
+        const wins=room.teamScore; const verdict = room.teamScore>=2000?'EFSANE TİM':room.teamScore>=1200?'SAĞLAM EKİP':room.teamScore>=600?'İDARE EDER':'RAPOR MASADA';
+        fb.innerHTML='VARDİYA BİTTİ<br>Takım Puanı: <b>'+room.teamScore+'</b><br>'+verdict;
+      } else {
+        const w=sorted[0];
+        fb.innerHTML='VARDİYA BİTTİ<br>Şampiyon: <b>'+(w?w.name:'—')+'</b><br>'+(w?w.score:0)+' puan';
+      }
+      fb.classList.add('show');
+    } else fb.classList.remove('show');
+  }
+
+  // main state → UI
+  function onRoom(r){
+    room=r;
+    if(!room){ return; }
+    if(room.phase==='lobby'){ lobby.classList.remove('hide'); $('shell').classList.add('hide'); enterWaitRoom(); renderWait(); return; }
+    // entering game
+    lobby.classList.add('hide'); $('shell').classList.remove('hide');
+    renderPanel(); renderChance(); renderInputState(); renderGoBtn();
+
+    // phase transitions
+    if(room.phase!==lastPhase){
+      if(room.phase==='input'){ lockedLocal=false; resetRadar(); status.className='status'; status.textContent = (room.mode==='coop' && !amMarker())?('İşaretçi: '+(P(room.markerId)?.name||'—')+' bekleniyor'):'Yarıçapı kilitle'; story.textContent=''; renderInputState(); renderGoBtn(); }
+      else if(room.phase==='scanning'){ startScanAnim(); }
+      else if(room.phase==='result'){ showResult(); }
+      else if(room.phase==='over'){ /* handled in panel */ }
+      lastPhase=room.phase;
+    } else if(room.phase==='result' && !animating){ showResult(); }
+
+    const host = room.players[0]?.id===myId;
+    $('monitorBtn').style.display = host ? 'block' : 'none';
+    if(monOpen) monitorSync();
+  }
+
+  // ---------- radar animation ----------
+  function resetRadar(){ blip.className='blip'; radar.classList.remove('scanning'); }
+  const scanLines=['TİMLER YOLDA...','BÖLGE TARANIYOR...','TEMAS ARANIYOR...','SON SANİYELER...'];
+  let scanTimers=[];
+  function clearScanTimers(){ scanTimers.forEach(t=>clearTimeout(t)); scanTimers.forEach(t=>clearInterval(t)); scanTimers=[]; }
+
+  function startScanAnim(){
+    animating=true; clearScanTimers();
+    const s=room.seed; const r=myEffectiveRadius();
+    const ang=s.ang, br=s.rollN*RADAR_R, bx=140+Math.cos(ang)*br, by=140+Math.sin(ang)*br;
+    blip.className='blip'; blip.style.left=bx+'px'; blip.style.top=by+'px';
+    radar.classList.add('scanning'); startPings(); riser((reduce?600:SCAN_MS_DEF)/1000);
+    status.className='status arming'; story.textContent='Şüphelinin son sinyali alınıyor...';
+    let si=0; status.textContent=scanLines[0];
+    const pt=setInterval(()=>{ si=Math.min(si+1,scanLines.length-1); status.textContent=scanLines[si]; }, (reduce?600:SCAN_MS_DEF)/scanLines.length);
+    scanTimers.push(pt);
+    scanTimers.push(setTimeout(()=>blip.classList.add('show'), (reduce?300:SCAN_MS_DEF*0.55)));
+    scanTimers.push(setTimeout(()=>{ clearInterval(pt); stopPings(); radar.classList.remove('scanning'); }, (reduce?600:SCAN_MS_DEF)));
+    // result comes from host broadcast; store blip coords
+    room._bx=bx; room._by=by; room._ang=ang;
+  }
+  function showResult(){
+    animating=false; clearScanTimers(); stopPings(); radar.classList.remove('scanning');
+    const s=room.seed; const r=myEffectiveRadius();
+    const ang=(room._ang!=null?room._ang:s.ang), br=s.rollN*RADAR_R, bx=(room._bx!=null?room._bx:140+Math.cos(ang)*br), by=(room._by!=null?room._by:140+Math.sin(ang)*br);
+    // my outcome
+    let win;
+    if(room.mode==='coop'){ win = P(room.markerId)?.lastResult==='win'; }
+    else { const me=P(myId); win = me && me.lastResult==='win'; }
+    const me=P(myId); const pts = me?me.roundPts:0;
+    if(win){
+      blip.className='blip show caught';
+      status.className='status win';
+      status.textContent = room.mode==='coop'?'ŞÜPHELİ YAKALANDI!':('YAKALADIN!'+(pts?(' +'+pts):''));
+      story.textContent = room.mode==='coop'?'Timler bölgeyi kıskaca aldı. Hedef gözaltında.':'Ağını doğru yere kurdun.';
+      flashGrn.classList.remove('go'); void flashGrn.offsetWidth; flashGrn.classList.add('go');
+      if(!reduce){ card.classList.add('win-pulse'); confetti(bx,by); }
+      sfxWin(); if(navigator.vibrate)navigator.vibrate([25,35,25,35,70]);
+      setTimeout(()=>card.classList.remove('win-pulse'),600);
+    } else {
+      const fx2=140+Math.cos(ang)*260, fy2=140+Math.sin(ang)*260;
+      blip.style.setProperty('--fx',fx2+'px'); blip.style.setProperty('--fy',fy2+'px');
+      blip.className='blip show escaped flee';
+      status.className='status lose';
+      status.textContent = room.mode==='coop'?'ŞÜPHELİ KAÇTI!':'KAÇTI!';
+      story.textContent = 'Arama alanı çok genişti. Hedef ağı yardı.';
+      flashRed.classList.remove('go'); void flashRed.offsetWidth; flashRed.classList.add('go');
+      alarm.classList.remove('go'); void alarm.offsetWidth; alarm.classList.add('go');
+      if(!reduce) card.classList.add('boom');
+      boom(bx,by); sfxLose(); if(navigator.vibrate)navigator.vibrate([120,50,200]);
+      setTimeout(()=>card.classList.remove('boom'),600);
+    }
+    renderPanel();
+  }
+
+  // ---------- SOUND ----------
+  let AC=null;
+  function ac(){ if(!AC) AC=new (window.AudioContext||window.webkitAudioContext)(); if(AC.state==='suspended')AC.resume(); return AC; }
+  function tone(freq,dur,{type='sine',gain=0.18,at=0,glideTo=null}={}){ if(!soundOn)return; const c=ac(),t0=c.currentTime+at,o=c.createOscillator(),g=c.createGain();
+    o.type=type; o.frequency.setValueAtTime(freq,t0); if(glideTo)o.frequency.exponentialRampToValueAtTime(glideTo,t0+dur);
+    g.gain.setValueAtTime(0.0001,t0); g.gain.exponentialRampToValueAtTime(gain,t0+0.01); g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
+    o.connect(g).connect(c.destination); o.start(t0); o.stop(t0+dur+0.02); }
+  function noise(dur,{gain=0.35,at=0,lp=1200}={}){ if(!soundOn)return; const c=ac(),t0=c.currentTime+at,n=Math.floor(c.sampleRate*dur),buf=c.createBuffer(1,n,c.sampleRate),d=buf.getChannelData(0);
+    for(let i=0;i<n;i++)d[i]=(Math.random()*2-1)*(1-i/n); const src=c.createBufferSource();src.buffer=buf;
+    const f=c.createBiquadFilter();f.type='lowpass';f.frequency.value=lp; const g=c.createGain();g.gain.setValueAtTime(gain,t0);g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
+    src.connect(f).connect(g).connect(c.destination); src.start(t0); }
+  let pingTimer=null;
+  function startPings(){ if(!soundOn)return; let i=0; pingTimer=setInterval(()=>{ tone(760+i*30,0.05,{type:'sine',gain:0.07}); i++; },420); }
+  function stopPings(){ if(pingTimer){clearInterval(pingTimer);pingTimer=null;} }
+  function riser(dur){ if(!soundOn)return; tone(180,dur,{type:'sawtooth',gain:0.09,glideTo:640}); }
+  function sfxWin(){ [0,0.11,0.22,0.4].forEach((a,i)=>tone([523,659,784,1046][i],0.22,{type:'triangle',gain:0.2,at:a})); }
+  function sfxLose(){ noise(0.5,{gain:0.5,lp:900}); tone(140,0.55,{type:'sawtooth',gain:0.26,glideTo:48});
+    [0,0.28].forEach(a=>{ tone(880,0.14,{type:'square',gain:0.11,at:a+0.15}); tone(660,0.14,{type:'square',gain:0.11,at:a+0.29}); }); }
+  function sfxClick(){ tone(420,0.05,{type:'square',gain:0.06}); }
+
+  const soundBtn=$('soundBtn');
+  soundBtn.classList.add('off');
+  soundBtn.addEventListener('click',()=>{ soundOn=!soundOn; soundBtn.classList.toggle('off',!soundOn);
+    $('soundIcon').innerHTML = soundOn
+      ? '<path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/>'
+      : '<path d="M11 5 6 9H2v6h4l5 4z"/><line x1="22" y1="9" x2="16" y2="15"/><line x1="16" y1="9" x2="22" y2="15"/>';
+    if(soundOn){ ac(); sfxClick(); }
+  });
+
+  // ---------- particles ----------
+  function spawn(cx,cy,colors,count,spread,grav){ for(let i=0;i<count;i++){ const p=document.createElement('div');p.className='particle';
+    const s=5+Math.random()*10;p.style.width=s+'px';p.style.height=s+'px';const col=colors[Math.floor(Math.random()*colors.length)];
+    p.style.background=col;p.style.boxShadow='0 0 8px '+col;p.style.left=cx+'px';p.style.top=cy+'px';fx.appendChild(p);
+    const a=Math.random()*Math.PI*2,v=spread*(0.3+Math.random()),dx=Math.cos(a)*v,dy=Math.sin(a)*v;
+    const an=p.animate([{transform:'translate(0,0) scale(1)',opacity:1},{transform:`translate(${dx}px,${dy+grav}px) scale(0)`,opacity:0}],{duration:800+Math.random()*600,easing:'cubic-bezier(.15,.6,.3,1)'});
+    an.onfinish=()=>p.remove(); } }
+  function screenPos(el,lx,ly){ const r=el.getBoundingClientRect(); return {x:r.left+lx,y:r.top+ly}; }
+  function boom(bx,by){ const pos=screenPos(radar,bx,by); spawn(pos.x,pos.y,['#ff4d4d','#ff8a3a','#fbbf24','#fff','#7a2f0f'],64,340,220); }
+  function confetti(bx,by){ const pos=screenPos(radar,bx,by); spawn(pos.x,pos.y,['#22e6a6','#38bdf8','#fbbf24','#fff'],48,300,240); }
+
+  // =========================================================
+  //  MONITOR (big-screen map)
+  // =========================================================
+  let monMap=null, monGroup=null, monInited=false, monOpen=false;
+  let monLastPhase=null, monLastRound=-1, monMarkers={}, monSuspect=null;
+
+  function initMap(){
+    const reg=REGIONS[room.region]||REGIONS.tr;
+    monMap=L.map('map',{zoomControl:false,attributionControl:false}).setView(reg.center,reg.zoom);
+    L.tileLayer('https://{s}.basemap.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{subdomains:'abcd',maxZoom:18}).addTo(monMap);
+    monGroup=L.layerGroup().addTo(monMap);
+    monInited=true;
+  }
+  function suspectIcon(caught){ return L.divIcon({className:'', html:`<div class="m-suspect ${caught?'caught':''}"><div class="pulse"></div><div class="core"></div></div>`, iconSize:[20,20], iconAnchor:[10,10]}); }
+  function unitIcon(p,state){ return L.divIcon({className:'', html:`<div class="m-unit ${state}"><div class="badge2" style="background:${colorFor(p.id)}">${initials(p.name)}</div><div class="tag2">${p.name}</div></div>`, iconSize:[26,42], iconAnchor:[13,13]}); }
+  function clearMap(){ if(monGroup)monGroup.clearLayers(); monMarkers={}; monSuspect=null; }
+
+  function buildMap(isResult){
+    clearMap(); if(!room.map||!monMap) return;
+    const S=room.map.suspect;
+    monSuspect=L.marker([S.lat,S.lng],{icon:suspectIcon(false),interactive:false,zIndexOffset:1000}).addTo(monGroup);
+    const pts=[[S.lat,S.lng]];
+    Object.entries(room.map.guesses).forEach(([pid,g])=>{
+      const p=P(pid); if(!p) return;
+      const state=isResult?(p.lastResult==='win'?'caught':(p.lastResult==='lose'||p.lastResult==='skip')?'escaped':''):'';
+      const col=state==='caught'?'#22e6a6':state==='escaped'?'#ff4d4d':'#38bdf8';
+      const line=L.polyline([[g.lat,g.lng],[S.lat,S.lng]],{color:col,weight:2,opacity:.55,dashArray:state==='escaped'?'6 7':null}).addTo(monGroup);
+      const m=L.marker([g.lat,g.lng],{icon:unitIcon(p,state),interactive:false,zIndexOffset:500}).addTo(monGroup);
+      monMarkers[pid]={marker:m,line,guess:g,state};
+      pts.push([g.lat,g.lng]);
+    });
+    try{ monMap.fitBounds(pts,{padding:[90,90],maxZoom:9}); }catch(e){}
+  }
+  function tween(o,from,to,ms){
+    const t0=performance.now();
+    (function fr(now){ const k=Math.min(1,(now-t0)/ms), e=1-Math.pow(1-k,3);
+      const la=from.lat+(to.lat-from.lat)*e, ln=from.lng+(to.lng-from.lng)*e;
+      o.marker.setLatLng([la,ln]); if(o.line)o.line.setLatLngs([[la,ln],[to.lat,to.lng]]);
+      if(k<1) requestAnimationFrame(fr);
+    })(t0);
+  }
+  function playCapture(){
+    if(!room.map) return; const S=room.map.suspect; let anyCaught=false;
+    Object.values(monMarkers).forEach(o=>{ if(o.state==='caught'){ anyCaught=true; if(!reduce) tween(o,o.guess,S,900); else { o.marker.setLatLng([S.lat,S.lng]); o.line.setLatLngs([[S.lat,S.lng],[S.lat,S.lng]]); } } });
+    if(anyCaught && monSuspect) monSuspect.setIcon(suspectIcon(true));
+  }
+  function monBoardRender(){
+    const el=$('monBoard'); el.innerHTML='';
+    const sorted=[...room.players].sort((a,b)=>b.score-a.score); const mx=sorted[0]?sorted[0].score:0;
+    sorted.forEach(p=>{ const d=document.createElement('div'); d.className='mon-chip'+((mx>0&&p.score===mx)?' lead':'')+(p.lastResult==='win'?' win':(p.lastResult==='lose'||p.lastResult==='skip')?' lose':'');
+      d.innerHTML=`<span class="cav" style="background:${colorFor(p.id)}">${initials(p.name)}</span><span class="cnm">${p.name}</span><span class="csc">${p.score}</span>`; el.appendChild(d); });
+  }
+  function monitorSync(){
+    if(!monOpen||!monInited||!room) return;
+    $('monRegion').textContent=(REGIONS[room.region]||REGIONS.tr).name;
+    $('monRound').textContent=Math.min(room.round,room.maxRounds)+'/'+room.maxRounds;
+    $('monMode').textContent=room.mode==='coop'?'Ortak':'Düello';
+    monBoardRender();
+    const changed = room.phase!==monLastPhase || room.round!==monLastRound;
+    const st=$('monStatus'), mon=$('monitor');
+    if(room.phase==='input'||room.phase==='lobby'){
+      mon.classList.remove('scanning'); st.className='mon-status';
+      st.textContent = room.phase==='lobby' ? 'Lobi — oyuncular bekleniyor' : ('Round '+room.round+' • timler işaret bekliyor');
+      if(changed){ clearMap(); const reg=REGIONS[room.region]||REGIONS.tr; monMap.setView(reg.center,reg.zoom); }
+    } else if(room.phase==='scanning'){
+      st.className='mon-status'; st.textContent='BÖLGE TARANIYOR — ŞÜPHELİ ARANIYOR';
+      if(changed){ mon.classList.add('scanning'); buildMap(false); }
+    } else if(room.phase==='result'){
+      mon.classList.remove('scanning');
+      if(changed){ buildMap(true); playCapture(); }
+      if(room.mode==='coop'){ const caught=P(room.markerId)?.lastResult==='win'; st.className='mon-status '+(caught?'win':'lose'); st.textContent=caught?'ŞÜPHELİ YAKALANDI!':'ŞÜPHELİ KAÇTI!'; }
+      else { const c=room.players.filter(p=>p.lastResult==='win').length, f=room.players.filter(p=>p.lastResult==='lose'||p.lastResult==='skip').length; st.className='mon-status '+(c>0?'win':'lose'); st.textContent=c+' TİM YAKALADI • '+f+' KAÇIRDI'; }
+    } else if(room.phase==='over'){
+      mon.classList.remove('scanning'); st.className='mon-status win';
+      if(room.mode==='coop'){ st.textContent='VARDİYA BİTTİ • TAKIM '+room.teamScore+' PUAN'; }
+      else { const w=[...room.players].sort((a,b)=>b.score-a.score)[0]; st.textContent='ŞAMPİYON: '+(w?w.name+' ('+w.score+')':'—'); }
+    }
+    monLastPhase=room.phase; monLastRound=room.round;
+  }
+  function openMonitor(){ $('monitor').classList.add('show'); if(!monInited) initMap(); monOpen=true; monLastPhase=null; monLastRound=-1; setTimeout(()=>{ if(monMap)monMap.invalidateSize(); monitorSync(); },80); }
+  function closeMonitor(){ $('monitor').classList.remove('show'); monOpen=false; }
+  $('monitorBtn').addEventListener('click',openMonitor);
+  $('monClose').addEventListener('click',closeMonitor);
+
+  // init defaults
+  syncInput();
+</script>
+</body>
+</html>
