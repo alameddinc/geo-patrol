@@ -250,18 +250,32 @@ function createRoom(){
   peer=new Peer(PREFIX+code);
   peer.on('open',id=>{ myId=id; room=freshRoom(code); room.players.push(playerObj(id,myName)); room.leaderId=id; enterWait(); onRoom(room); loadLocations(); });
   peer.on('connection',c=>{ c.on('open',()=>{ if(!conns.includes(c))conns.push(c); }); c.on('data',d=>hostData(c,d)); c.on('close',()=>{ conns=conns.filter(x=>x!==c); if(room){room.players=room.players.filter(p=>p.id!==c.peer); if(room.leaderId===c.peer)room.leaderId=room.players[0]?.id||null; broadcast();} }); });
+  peer.on('disconnected',()=>{ try{peer.reconnect();}catch(e){} });  // broker kopmasında id'yi ayakta tut
   peer.on('error',e=>{ if(e.type==='unavailable-id'){peer.destroy();createRoom();} else {lobbyErr('Bağlantı hatası: '+e.type);isHost=false;} });
 }
-function joinRoom(code){
-  isHost=false; peer=new Peer();
-  peer.on('open',id=>{ myId=id; hostConn=peer.connect(PREFIX+code,{reliable:true});
-    hostConn.on('open',()=>hostConn.send({t:'join',name:myName}));
-    hostConn.on('data',d=>{ if(d.t==='state'){ room=d.room; onRoom(room);} });
-    hostConn.on('close',()=>{lobbyErr('Oda kapandı.');backLobby();});
-    hostConn.on('error',()=>lobbyErr('Bağlantı hatası.'));
-    setTimeout(()=>{ if(!room){lobbyErr('Oda bulunamadı.');backLobby();} },6000);
+let joinTries=0;
+function joinRoom(code){ isHost=false; joinTries=0; attemptJoin(code); }
+function attemptJoin(code){
+  joinTries++;
+  if(peer){ try{peer.destroy();}catch(e){} }
+  peer=new Peer(); let settled=false;
+  peer.on('open',id=>{ myId=id;
+    const hc=peer.connect(PREFIX+code,{reliable:true}); hostConn=hc;
+    hc.on('open',()=>{ settled=true; lobbyErr(''); hc.send({t:'join',name:myName}); });
+    hc.on('data',d=>{ if(d.t==='state'){ room=d.room; onRoom(room);} });
+    hc.on('close',()=>{ if(room){lobbyErr('Oda kapandı.');} backLobby(); });
+    hc.on('error',()=>{});
+    setTimeout(()=>{ if(!settled && !room) retryOrFail(code); }, 5000);
   });
-  peer.on('error',e=>{ lobbyErr(e.type==='peer-unavailable'?'Oda bulunamadı.':'Hata: '+e.type); backLobby(); });
+  peer.on('error',e=>{
+    if(['peer-unavailable','network','server-error','socket-error','socket-closed'].includes(e.type)) retryOrFail(code);
+    else { lobbyErr('Hata: '+e.type); backLobby(); }
+  });
+}
+function retryOrFail(code){
+  if(room) return;
+  if(joinTries<3){ lobbyErr('Bağlanılıyor... ('+joinTries+'/3)'); setTimeout(()=>attemptJoin(code),1100); }
+  else { lobbyErr('Oda bulunamadı. Host açık mı, kod doğru mu?'); backLobby(); }
 }
 function hostData(c,d){
   if(!room) return;
